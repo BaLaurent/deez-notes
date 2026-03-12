@@ -13,8 +13,8 @@ A fast, keyboard-driven TUI note manager for Markdown files. Built with Rust and
 - Tag filtering and sorting (by modified date, creation date, or title)
 - Create, rename, and delete notes directly from the TUI
 - Open notes in your preferred editor (`$EDITOR`, or configurable)
-- Read-only viewer mode (uses `bat`, `less`, or `cat`)
-- Vim-style navigation (`j`/`k`)
+- Read-only viewer mode (uses [`mcat`](https://github.com/Skardyy/mcat) if available, falls back to `cat`)
+- Keyboard-driven with `Ctrl+` shortcuts and `j`/`k` navigation
 - Configurable via TOML (`~/.config/deez-notes/config.toml`)
 
 ## Installation
@@ -28,7 +28,7 @@ cargo install --path .
 ### Build manually
 
 ```bash
-git clone https://github.com/OctopusMan/deez-notes.git
+git clone https://github.com/BaLaurent/deez-notes.git
 cd deez-notes
 cargo build --release
 # Binary is at ./target/release/deez-notes

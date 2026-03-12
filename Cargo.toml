@@ -1,0 +1,23 @@
+[package]
+name = "deez-notes"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ratatui = "0.30"
+crossterm = "0.29"
+pulldown-cmark = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_yml = "0.0.12"
+gray_matter = "0.2"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+dirs = "5"
+chrono = { version = "0.4", features = ["serde"] }
+nucleo-matcher = "0.3"
+unicode-width = "0.2"
+slug = "0.1"
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"

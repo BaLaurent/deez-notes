@@ -1,0 +1,294 @@
+use std::io::{self, Stdout};
+use std::path::Path;
+use std::time::{Duration, Instant};
+
+use anyhow::Result;
+use clap::Parser;
+use crossterm::{
+    cursor::{Hide, Show},
+    event::{self, Event, KeyEventKind},
+    execute,
+    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{backend::CrosstermBackend, Terminal};
+
+use deez_notes::app::{App, AppAction, AppMode};
+use deez_notes::{config, editor, input, ui};
+
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+#[derive(Parser)]
+#[command(name = "deez-notes", version, about = "TUI Markdown note manager")]
+struct Cli {
+    /// Notes directory (default: ~/notes/)
+    #[arg()]
+    directory: Option<String>,
+
+    /// Path to config file
+    #[arg(short, long)]
+    config: Option<String>,
+
+    /// Override editor binary
+    #[arg(long)]
+    editor: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    // Load config (from CLI path or default location).
+    let config_path = cli.config.as_deref().map(Path::new);
+    let mut config = config::settings::load_config(config_path);
+
+    // Apply CLI overrides.
+    if let Some(dir) = cli.directory {
+        config.general.notes_dir = dir;
+    }
+    if let Some(ed) = cli.editor {
+        config.general.editor = ed;
+    }
+
+    // Install panic hook that restores the terminal before printing the panic.
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = execute!(io::stderr(), LeaveAlternateScreen);
+        let _ = terminal::disable_raw_mode();
+        let _ = execute!(io::stderr(), Show);
+        original_hook(info);
+    }));
+
+    // Setup terminal.
+    terminal::enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, Hide)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    // Build the application.
+    let mut app = App::new(config)?;
+
+    // Run the event loop.
+    let result = run_app(&mut terminal, &mut app);
+
+    // Cleanup terminal (always, even on error).
+    let _ = execute!(terminal.backend_mut(), Show, LeaveAlternateScreen);
+    let _ = terminal::disable_raw_mode();
+
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Event loop
+// ---------------------------------------------------------------------------
+
+fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &mut App,
+) -> Result<()> {
+    let mut status_set_at: Option<Instant> = None;
+
+    loop {
+        // Auto-clear status message after 3 seconds.
+        if let Some(set_at) = status_set_at {
+            if set_at.elapsed() >= Duration::from_secs(3) {
+                app.state.status_message = None;
+                status_set_at = None;
+                app.dirty = true;
+            }
+        }
+        if app.state.status_message.is_some() && status_set_at.is_none() {
+            status_set_at = Some(Instant::now());
+        }
+        if app.state.status_message.is_none() {
+            status_set_at = None;
+        }
+
+        if app.dirty {
+            let area: ratatui::layout::Rect = terminal.size()?.into();
+            let layout = ui::layout::compute_layout(area, app.config.ui.side_panel_width_percent);
+            let main_panel_width = layout.main_panel.width.saturating_sub(2); // borders
+            app.ensure_markdown_cache(main_panel_width);
+            terminal.draw(|frame| draw_ui(frame, app))?;
+            app.dirty = false;
+        }
+
+        if event::poll(Duration::from_millis(50))? {
+            match event::read()? {
+                Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                    app.dirty = true;
+                    if let Some(action) =
+                        input::keybindings::map_key_event(key_event, &app.state.mode)
+                    {
+                        let app_action = app.handle_action(action)?;
+
+                        match app_action {
+                            AppAction::OpenEditor(path) => {
+                                // Suspend terminal.
+                                execute!(io::stdout(), LeaveAlternateScreen)?;
+                                terminal::disable_raw_mode()?;
+                                execute!(io::stdout(), Show)?;
+
+                                let real_idx = app.selected_note_real_index();
+
+                                let editor_override = if app.config.general.editor.is_empty() {
+                                    None
+                                } else {
+                                    Some(app.config.general.editor.as_str())
+                                };
+                                let result =
+                                    editor::external::open_in_editor(&path, editor_override);
+
+                                // Resume terminal.
+                                terminal::enable_raw_mode()?;
+                                execute!(io::stdout(), EnterAlternateScreen, Hide)?;
+                                terminal.clear()?;
+
+                                if let Err(e) = result {
+                                    app.set_status(format!("Editor error: {}", e));
+                                } else if let Some(idx) = real_idx {
+                                    app.after_editor(idx)?;
+                                }
+                                app.dirty = true;
+                            }
+                            AppAction::OpenViewer(path) => {
+                                // Suspend terminal (leave alternate screen so output is visible).
+                                execute!(io::stdout(), LeaveAlternateScreen)?;
+                                terminal::disable_raw_mode()?;
+                                execute!(io::stdout(), Show)?;
+
+                                let result = editor::external::open_in_viewer(&path);
+
+                                match &result {
+                                    Ok(viewer) => {
+                                        // Pagers (mcat, less, bat…) handle scrolling
+                                        // themselves — no need to wait.
+                                        // Non-pagers (cat) dump and exit instantly —
+                                        // wait so the user can actually read.
+                                        if !editor::external::viewer_is_pager(viewer) {
+                                            wait_for_keypress();
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("\nViewer error: {}", e);
+                                        wait_for_keypress();
+                                    }
+                                }
+
+                                // Resume terminal.
+                                terminal::enable_raw_mode()?;
+                                execute!(io::stdout(), EnterAlternateScreen, Hide)?;
+                                terminal.clear()?;
+
+                                if let Err(e) = result {
+                                    app.set_status(format!("Viewer error: {}", e));
+                                }
+                                app.dirty = true;
+                            }
+                            AppAction::Quit => break,
+                            AppAction::None => {}
+                        }
+                    }
+                }
+                Event::Resize(_, _) => {
+                    app.dirty = true;
+                }
+                _ => {}
+            }
+        }
+
+        if app.should_quit {
+            break;
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Print a prompt and block until the user presses any key.
+///
+/// Uses raw mode temporarily so a single keypress is enough (no Enter needed).
+fn wait_for_keypress() {
+    use std::io::Write;
+
+    eprint!("\n--- Press any key to return ---");
+    let _ = io::stderr().flush();
+
+    // Enable raw mode so we get a single keypress without waiting for Enter.
+    let _ = terminal::enable_raw_mode();
+    loop {
+        if event::poll(Duration::from_secs(60)).unwrap_or(false) {
+            if let Ok(Event::Key(k)) = event::read() {
+                if k.kind == KeyEventKind::Press {
+                    break;
+                }
+            }
+        }
+    }
+    let _ = terminal::disable_raw_mode();
+}
+
+// ---------------------------------------------------------------------------
+// UI drawing
+// ---------------------------------------------------------------------------
+
+fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
+    let area = frame.area();
+    let layout = ui::layout::compute_layout(area, app.config.ui.side_panel_width_percent);
+    let notes = app.notes();
+
+    // Base widgets.
+    frame.render_widget(ui::search_bar::SearchBar::new(&app.state), layout.search_bar);
+    frame.render_widget(
+        ui::side_panel::SidePanel::new(&app.state, notes, &app.config.ui, &app.config.colors.tag_colors),
+        layout.side_panel,
+    );
+    frame.render_widget(ui::main_panel::MainPanel::new(&app.state, notes), layout.main_panel);
+    frame.render_widget(ui::status_bar::StatusBar::new(&app.state, notes), layout.status_bar);
+
+    // Overlays based on current mode.
+    match app.state.mode {
+        AppMode::ConfirmDelete => {
+            if let Some(real_idx) = app.selected_note_real_index() {
+                let title = &notes[real_idx].title;
+                frame.render_widget(ui::dialogs::ConfirmDeleteDialog::new(title), area);
+            }
+        }
+        AppMode::CreateNote => {
+            frame.render_widget(
+                ui::dialogs::TextInputDialog::new("New Note", &app.state.input_buffer),
+                area,
+            );
+        }
+        AppMode::Rename => {
+            frame.render_widget(
+                ui::dialogs::TextInputDialog::new("Rename Note", &app.state.input_buffer),
+                area,
+            );
+        }
+        AppMode::Help => {
+            frame.render_widget(ui::dialogs::HelpDialog, area);
+        }
+        AppMode::SortMenu => {
+            frame.render_widget(ui::dialogs::SortMenuDialog::new(app.sort_menu_index), area);
+        }
+        AppMode::TagFilter => {
+            let items = deez_notes::core::tags::tag_filter_items(notes);
+            let height = (items.len() as u16 + 2).min(area.height);
+            let overlay = ui::dialogs::centered_rect(40, height, area);
+            frame.render_widget(
+                ui::filter_bar::FilterBar::new(&app.state, notes, app.tag_filter_index),
+                overlay,
+            );
+        }
+        _ => {}
+    }
+}

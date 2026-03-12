@@ -1,0 +1,270 @@
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Clear, Paragraph, Widget, Wrap},
+};
+
+// ---------------------------------------------------------------------------
+// Helper
+// ---------------------------------------------------------------------------
+
+/// Calculate a centered `Rect` for a popup of given width/height within an area.
+/// Clamps to the area bounds if the popup is larger than the available space.
+pub fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let w = width.min(area.width);
+    let h = height.min(area.height);
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    Rect::new(x, y, w, h)
+}
+
+// ---------------------------------------------------------------------------
+// ConfirmDeleteDialog
+// ---------------------------------------------------------------------------
+
+/// Popup asking the user to confirm note deletion.
+pub struct ConfirmDeleteDialog<'a> {
+    note_title: &'a str,
+}
+
+impl<'a> ConfirmDeleteDialog<'a> {
+    pub fn new(note_title: &'a str) -> Self {
+        Self { note_title }
+    }
+}
+
+impl Widget for ConfirmDeleteDialog<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let popup = centered_rect(40, 6, area);
+        Clear.render(popup, buf);
+
+        let block = Block::bordered()
+            .title(" Delete Note ")
+            .border_style(Style::default().fg(Color::Red));
+
+        let text = vec![
+            Line::from(format!("Delete '{}'?", self.note_title)),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("[Y]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::raw("es  "),
+                Span::styled("[N]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw("o"),
+            ]),
+        ];
+
+        Paragraph::new(text)
+            .block(block)
+            .wrap(Wrap { trim: false })
+            .render(popup, buf);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TextInputDialog
+// ---------------------------------------------------------------------------
+
+/// Popup for text input (used by "New Note" and "Rename Note" modes).
+pub struct TextInputDialog<'a> {
+    title: &'a str,
+    input: &'a str,
+}
+
+impl<'a> TextInputDialog<'a> {
+    pub fn new(title: &'a str, input: &'a str) -> Self {
+        Self { title, input }
+    }
+}
+
+impl Widget for TextInputDialog<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let popup = centered_rect(50, 5, area);
+        Clear.render(popup, buf);
+
+        let block = Block::bordered()
+            .title(format!(" {} ", self.title))
+            .border_style(Style::default().fg(Color::Cyan));
+
+        let display = format!("{}│", self.input);
+
+        let text = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                display,
+                Style::default().fg(Color::White),
+            )),
+        ];
+
+        Paragraph::new(text)
+            .block(block)
+            .wrap(Wrap { trim: false })
+            .render(popup, buf);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HelpDialog
+// ---------------------------------------------------------------------------
+
+/// Full-screen-ish overlay showing keyboard shortcuts.
+pub struct HelpDialog;
+
+impl Widget for HelpDialog {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let popup = centered_rect(60, 21, area);
+        Clear.render(popup, buf);
+
+        let block = Block::bordered()
+            .title(" Help - Keyboard Shortcuts ")
+            .border_style(Style::default().fg(Color::Green));
+
+        let key_style = Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
+        let desc_style = Style::default().fg(Color::White);
+
+        let bindings: &[(&str, &str)] = &[
+            ("Ctrl+N", "New note"),
+            ("Ctrl+E", "Edit in editor"),
+            ("Ctrl+V", "View read-only"),
+            ("Ctrl+D", "Delete note"),
+            ("F2", "Rename note"),
+            ("Ctrl+F", "Search"),
+            ("Ctrl+T", "Filter by tag"),
+            ("Ctrl+S", "Sort notes"),
+            ("Ctrl+R", "Refresh"),
+            ("Tab", "Switch panel"),
+            ("↑↓/j/k", "Navigate"),
+            ("Enter", "Select/Open"),
+            ("Ctrl+Q", "Quit"),
+            ("F1/?", "This help"),
+        ];
+
+        let lines: Vec<Line<'_>> = bindings
+            .iter()
+            .map(|(key, action)| {
+                Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(format!("{:<12}", key), key_style),
+                    Span::styled(*action, desc_style),
+                ])
+            })
+            .collect();
+
+        Paragraph::new(lines)
+            .block(block)
+            .render(popup, buf);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SortMenuDialog
+// ---------------------------------------------------------------------------
+
+/// Popup listing sort options with the selected one highlighted.
+pub struct SortMenuDialog {
+    selected: usize,
+}
+
+impl SortMenuDialog {
+    pub fn new(selected: usize) -> Self {
+        Self { selected }
+    }
+}
+
+impl Widget for SortMenuDialog {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let popup = centered_rect(30, 8, area);
+        Clear.render(popup, buf);
+
+        let block = Block::bordered()
+            .title(" Sort By ")
+            .border_style(Style::default().fg(Color::Yellow));
+
+        let options = ["Modified Date", "Created Date", "Title"];
+
+        let normal_style = Style::default().fg(Color::White);
+        let highlight_style = Style::default()
+            .fg(Color::Black)
+            .bg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
+
+        let lines: Vec<Line<'_>> = options
+            .iter()
+            .enumerate()
+            .map(|(i, label)| {
+                let style = if i == self.selected {
+                    highlight_style
+                } else {
+                    normal_style
+                };
+                let prefix = if i == self.selected { " ▸ " } else { "   " };
+                Line::from(Span::styled(format!("{}{}", prefix, label), style))
+            })
+            .collect();
+
+        Paragraph::new(lines)
+            .block(block)
+            .render(popup, buf);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{buffer::Buffer, layout::Rect};
+
+    #[test]
+    fn centered_rect_basic() {
+        let area = Rect::new(0, 0, 100, 50);
+        let r = centered_rect(40, 10, area);
+        assert_eq!(r.x, 30);
+        assert_eq!(r.y, 20);
+        assert_eq!(r.width, 40);
+        assert_eq!(r.height, 10);
+    }
+
+    #[test]
+    fn centered_rect_clamped() {
+        let area = Rect::new(0, 0, 20, 10);
+        let r = centered_rect(40, 20, area);
+        assert_eq!(r.width, 20);
+        assert_eq!(r.height, 10);
+        assert_eq!(r.x, 0);
+        assert_eq!(r.y, 0);
+    }
+
+    #[test]
+    fn confirm_delete_renders_without_panic() {
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        ConfirmDeleteDialog::new("My Note").render(area, &mut buf);
+    }
+
+    #[test]
+    fn text_input_renders_without_panic() {
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        TextInputDialog::new("New Note", "hello").render(area, &mut buf);
+    }
+
+    #[test]
+    fn help_dialog_renders_without_panic() {
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        HelpDialog.render(area, &mut buf);
+    }
+
+    #[test]
+    fn sort_menu_renders_without_panic() {
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        SortMenuDialog::new(1).render(area, &mut buf);
+    }
+}

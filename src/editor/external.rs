@@ -177,14 +177,15 @@ mod tests {
     fn find_editor_ignores_empty_override() {
         let _guard = ENV_LOCK.lock().unwrap();
         let prev = std::env::var("EDITOR").ok();
-        std::env::set_var("EDITOR", "test-editor-from-env");
+        // SAFETY: test holds ENV_LOCK so no concurrent env access.
+        unsafe { std::env::set_var("EDITOR", "test-editor-from-env"); }
 
         let result = find_editor(Some(""));
         assert_eq!(result.expect("should succeed"), "test-editor-from-env");
 
         match prev {
-            Some(v) => std::env::set_var("EDITOR", v),
-            None => std::env::remove_var("EDITOR"),
+            Some(v) => unsafe { std::env::set_var("EDITOR", v); },
+            None => unsafe { std::env::remove_var("EDITOR"); },
         }
     }
 
@@ -192,14 +193,15 @@ mod tests {
     fn find_editor_reads_env_when_no_override() {
         let _guard = ENV_LOCK.lock().unwrap();
         let prev = std::env::var("EDITOR").ok();
-        std::env::set_var("EDITOR", "helix");
+        // SAFETY: test holds ENV_LOCK so no concurrent env access.
+        unsafe { std::env::set_var("EDITOR", "helix"); }
 
         let result = find_editor(None);
         assert_eq!(result.expect("should succeed"), "helix");
 
         match prev {
-            Some(v) => std::env::set_var("EDITOR", v),
-            None => std::env::remove_var("EDITOR"),
+            Some(v) => unsafe { std::env::set_var("EDITOR", v); },
+            None => unsafe { std::env::remove_var("EDITOR"); },
         }
     }
 
@@ -207,7 +209,8 @@ mod tests {
     fn find_editor_fallback_when_no_env() {
         let _guard = ENV_LOCK.lock().unwrap();
         let prev = std::env::var("EDITOR").ok();
-        std::env::remove_var("EDITOR");
+        // SAFETY: test holds ENV_LOCK so no concurrent env access.
+        unsafe { std::env::remove_var("EDITOR"); }
 
         let result = find_editor(None);
         let editor = result.expect("should find at least one fallback editor");
@@ -219,7 +222,7 @@ mod tests {
         );
 
         if let Some(v) = prev {
-            std::env::set_var("EDITOR", v);
+            unsafe { std::env::set_var("EDITOR", v); }
         }
     }
 

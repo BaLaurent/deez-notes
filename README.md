@@ -107,7 +107,7 @@ deez-notes --editor nvim
 | `Ctrl+P` | Select theme |
 | `Ctrl+R` | Refresh note list |
 | `Ctrl+Q` | Quit |
-| `F1` / `Ctrl+?` | Help |
+| `F1` / `Ctrl+?` / `Ctrl+K` | Help |
 
 ## Configuration
 

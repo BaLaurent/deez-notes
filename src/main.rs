@@ -245,47 +245,62 @@ fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
     let layout = ui::layout::compute_layout(area, app.config.ui.side_panel_width_percent);
     let notes = app.notes();
 
-    // Base widgets.
-    frame.render_widget(ui::search_bar::SearchBar::new(&app.state), layout.search_bar);
+    let theme = &app.current_theme;
+
+    // Fill the entire frame with the theme background color.
     frame.render_widget(
-        ui::side_panel::SidePanel::new(&app.state, notes, &app.config.ui, &app.config.colors.tag_colors),
+        ratatui::widgets::Block::default().style(ratatui::style::Style::default().bg(theme.bg_main)),
+        area,
+    );
+
+    // Base widgets.
+    frame.render_widget(ui::search_bar::SearchBar::new(&app.state, theme), layout.search_bar);
+    frame.render_widget(
+        ui::side_panel::SidePanel::new(&app.state, notes, &app.config.ui, theme),
         layout.side_panel,
     );
-    frame.render_widget(ui::main_panel::MainPanel::new(&app.state, notes), layout.main_panel);
-    frame.render_widget(ui::status_bar::StatusBar::new(&app.state, notes), layout.status_bar);
+    frame.render_widget(ui::main_panel::MainPanel::new(&app.state, notes, theme), layout.main_panel);
+    frame.render_widget(ui::status_bar::StatusBar::new(&app.state, notes, theme), layout.status_bar);
 
     // Overlays based on current mode.
     match app.state.mode {
         AppMode::ConfirmDelete => {
             if let Some(real_idx) = app.selected_note_real_index() {
                 let title = &notes[real_idx].title;
-                frame.render_widget(ui::dialogs::ConfirmDeleteDialog::new(title), area);
+                frame.render_widget(ui::dialogs::ConfirmDeleteDialog::new(title, theme), area);
             }
         }
         AppMode::CreateNote => {
             frame.render_widget(
-                ui::dialogs::TextInputDialog::new("New Note", &app.state.input_buffer),
+                ui::dialogs::TextInputDialog::new("New Note", &app.state.input_buffer, theme),
                 area,
             );
         }
         AppMode::Rename => {
             frame.render_widget(
-                ui::dialogs::TextInputDialog::new("Rename Note", &app.state.input_buffer),
+                ui::dialogs::TextInputDialog::new("Rename Note", &app.state.input_buffer, theme),
                 area,
             );
         }
         AppMode::Help => {
-            frame.render_widget(ui::dialogs::HelpDialog, area);
+            frame.render_widget(ui::dialogs::HelpDialog::new(theme), area);
         }
         AppMode::SortMenu => {
-            frame.render_widget(ui::dialogs::SortMenuDialog::new(app.sort_menu_index), area);
+            frame.render_widget(ui::dialogs::SortMenuDialog::new(app.sort_menu_index, theme), area);
+        }
+        AppMode::ThemeMenu => {
+            let theme_names: Vec<String> = app.available_themes.iter().map(|t| t.name.clone()).collect();
+            frame.render_widget(
+                ui::dialogs::ThemeMenuDialog::new(app.theme_menu_index, &theme_names, theme),
+                area,
+            );
         }
         AppMode::TagFilter => {
             let items = deez_notes::core::tags::tag_filter_items(notes);
             let height = (items.len() as u16 + 2).min(area.height);
             let overlay = ui::dialogs::centered_rect(40, height, area);
             frame.render_widget(
-                ui::filter_bar::FilterBar::new(&app.state, notes, app.tag_filter_index),
+                ui::filter_bar::FilterBar::new(&app.state, notes, app.tag_filter_index, theme),
                 overlay,
             );
         }

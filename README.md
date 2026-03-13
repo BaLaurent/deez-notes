@@ -104,6 +104,7 @@ deez-notes --editor nvim
 | `Ctrl+F` | Search notes |
 | `Ctrl+T` | Filter by tag |
 | `Ctrl+S` | Sort notes |
+| `Ctrl+P` | Select theme |
 | `Ctrl+R` | Refresh note list |
 | `Ctrl+Q` | Quit |
 | `F1` / `Ctrl+?` | Help |
@@ -131,6 +132,43 @@ default_ascending = false
 [colors]
 tag_colors = ["cyan", "magenta", "yellow", "green", "red", "blue"]
 ```
+
+### Themes
+
+deez-notes ships with 6 built-in themes: **Terminal** (ANSI default), **Catppuccin**, **Monokai**, **Nord**, **Gruvbox**, and **Darcula**. Press `Ctrl+P` to open the theme selector.
+
+You can define custom themes in `config.toml` using `[[themes]]` blocks. Colors accept named values (`cyan`, `red`, `green`, ...) or hex format (`#rrggbb`).
+
+```toml
+[[themes]]
+name = "Sakura"
+fg_primary = "#e8d5c4"
+fg_secondary = "#7a6b63"
+accent = "#f0a0b0"
+highlight = "#f5c6aa"
+success = "#b4d9a0"
+error = "#e06070"
+bg_main = "#1e1518"
+bg_bar = "#2a2025"
+bg_selection = "#f0a0b0"
+fg_selection = "#1e1518"
+tag_colors = ["#f0a0b0", "#b4d9a0", "#f5c6aa", "#a0c4e8", "#d0a0e0", "#e0c080"]
+```
+
+Custom themes appear alongside built-in themes in the `Ctrl+P` selector.
+
+| Role | Description |
+|------|-------------|
+| `fg_primary` | Main text |
+| `fg_secondary` | Muted text, dates, placeholders |
+| `accent` | Borders, labels, headings (H1) |
+| `highlight` | Status messages, H2, inline code |
+| `success` | Confirmations, code blocks, H3 |
+| `error` | Deletion / danger |
+| `bg_main` | Main background |
+| `bg_bar` | Status bar and search bar background |
+| `bg_selection` | Selected item background in overlays |
+| `fg_selection` | Text on selected items |
 
 ## Note format
 

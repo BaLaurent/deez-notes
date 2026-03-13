@@ -1,14 +1,16 @@
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
 };
+
+use crate::config::theme::Theme;
 
 /// Number of spaces a tab character expands to in the rendered output.
 const TAB_WIDTH: usize = 4;
 
 /// Convert Markdown content into styled ratatui `Line` objects for TUI display.
-pub fn render_markdown(content: &str, width: u16) -> Vec<Line<'static>> {
+pub fn render_markdown(content: &str, width: u16, theme: &Theme) -> Vec<Line<'static>> {
     if content.is_empty() {
         return Vec::new();
     }
@@ -42,7 +44,7 @@ pub fn render_markdown(content: &str, width: u16) -> Vec<Line<'static>> {
                 heading_level = Some(level);
             }
             Event::End(TagEnd::Heading(level)) => {
-                let style = heading_style(level);
+                let style = heading_style(level, theme);
                 let finished: Vec<Span<'static>> = current_spans
                     .drain(..)
                     .map(|s| Span::styled(s.content.to_string(), style))
@@ -131,11 +133,11 @@ pub fn render_markdown(content: &str, width: u16) -> Vec<Line<'static>> {
                         }
                         let mut code_spans = vec![Span::styled(
                             "  \u{2502} ".to_string(),
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(theme.fg_secondary),
                         )];
                         code_spans.push(Span::styled(
                             line_text.to_string(),
-                            Style::default().fg(Color::Green),
+                            Style::default().fg(theme.success),
                         ));
                         lines.push(Line::from(code_spans));
                     }
@@ -147,7 +149,7 @@ pub fn render_markdown(content: &str, width: u16) -> Vec<Line<'static>> {
                     if current_spans.is_empty() {
                         current_spans.push(Span::styled(
                             "\u{2502} ".to_string(),
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(theme.fg_secondary),
                         ));
                     }
                     current_spans.push(Span::styled(
@@ -171,7 +173,7 @@ pub fn render_markdown(content: &str, width: u16) -> Vec<Line<'static>> {
                 }
 
                 // Apply inline styles
-                let style = inline_style(heading_level, in_strong, in_emphasis);
+                let style = inline_style(heading_level, in_strong, in_emphasis, theme);
                 current_spans.push(Span::styled(text_str, style));
             }
 
@@ -180,7 +182,7 @@ pub fn render_markdown(content: &str, width: u16) -> Vec<Line<'static>> {
                 let text_str = code.to_string();
                 current_spans.push(Span::styled(
                     text_str,
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(theme.highlight),
                 ));
             }
 
@@ -204,7 +206,7 @@ pub fn render_markdown(content: &str, width: u16) -> Vec<Line<'static>> {
                 let rule_str: String = "\u{2500}".repeat(rule_width);
                 lines.push(Line::from(Span::styled(
                     rule_str,
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme.fg_secondary),
                 )));
                 lines.push(Line::from(""));
             }
@@ -226,24 +228,24 @@ enum ListKind {
     Unordered,
 }
 
-fn heading_style(level: HeadingLevel) -> Style {
+fn heading_style(level: HeadingLevel, theme: &Theme) -> Style {
     match level {
         HeadingLevel::H1 => Style::default()
-            .fg(Color::Cyan)
+            .fg(theme.accent)
             .add_modifier(Modifier::BOLD),
         HeadingLevel::H2 => Style::default()
-            .fg(Color::Yellow)
+            .fg(theme.highlight)
             .add_modifier(Modifier::BOLD),
         HeadingLevel::H3 => Style::default()
-            .fg(Color::Green)
+            .fg(theme.success)
             .add_modifier(Modifier::BOLD),
         _ => Style::default().add_modifier(Modifier::BOLD),
     }
 }
 
-fn inline_style(heading: Option<HeadingLevel>, strong: bool, emphasis: bool) -> Style {
+fn inline_style(heading: Option<HeadingLevel>, strong: bool, emphasis: bool, theme: &Theme) -> Style {
     if let Some(level) = heading {
-        return heading_style(level);
+        return heading_style(level, theme);
     }
     let mut style = Style::default();
     if strong {
@@ -301,49 +303,57 @@ fn preserve_leading_whitespace(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::theme::Theme;
+
+    fn test_theme() -> Theme {
+        Theme::terminal(&[])
+    }
 
     #[test]
     fn empty_input_returns_empty_vec() {
-        let result = render_markdown("", 80);
+        let result = render_markdown("", 80, &test_theme());
         assert!(result.is_empty());
     }
 
     #[test]
-    fn heading_h1_is_bold_cyan() {
-        let result = render_markdown("# Hello", 80);
+    fn heading_h1_is_bold_accent() {
+        let theme = test_theme();
+        let result = render_markdown("# Hello", 80, &theme);
         assert!(!result.is_empty());
         let first = &result[0];
         let span = &first.spans[0];
         let style = span.style;
-        assert_eq!(style.fg, Some(Color::Cyan));
+        assert_eq!(style.fg, Some(theme.accent));
         assert!(style.add_modifier.contains(Modifier::BOLD));
     }
 
     #[test]
-    fn heading_h2_is_bold_yellow() {
-        let result = render_markdown("## World", 80);
+    fn heading_h2_is_bold_highlight() {
+        let theme = test_theme();
+        let result = render_markdown("## World", 80, &theme);
         assert!(!result.is_empty());
         let first = &result[0];
         let span = &first.spans[0];
         let style = span.style;
-        assert_eq!(style.fg, Some(Color::Yellow));
+        assert_eq!(style.fg, Some(theme.highlight));
         assert!(style.add_modifier.contains(Modifier::BOLD));
     }
 
     #[test]
-    fn heading_h3_is_bold_green() {
-        let result = render_markdown("### Section", 80);
+    fn heading_h3_is_bold_success() {
+        let theme = test_theme();
+        let result = render_markdown("### Section", 80, &theme);
         assert!(!result.is_empty());
         let first = &result[0];
         let span = &first.spans[0];
         let style = span.style;
-        assert_eq!(style.fg, Some(Color::Green));
+        assert_eq!(style.fg, Some(theme.success));
         assert!(style.add_modifier.contains(Modifier::BOLD));
     }
 
     #[test]
     fn h1_has_blank_line_after() {
-        let result = render_markdown("# Title", 80);
+        let result = render_markdown("# Title", 80, &test_theme());
         // Should be: heading line, blank line
         assert!(result.len() >= 2);
         assert!(result[1].spans.is_empty() || result[1].to_string().is_empty());
@@ -351,7 +361,7 @@ mod tests {
 
     #[test]
     fn bold_text_has_bold_modifier() {
-        let result = render_markdown("some **bold** text", 80);
+        let result = render_markdown("some **bold** text", 80, &test_theme());
         assert!(!result.is_empty());
         let line = &result[0];
         // Find the span containing "bold"
@@ -366,7 +376,7 @@ mod tests {
 
     #[test]
     fn italic_text_has_italic_modifier() {
-        let result = render_markdown("some *italic* text", 80);
+        let result = render_markdown("some *italic* text", 80, &test_theme());
         assert!(!result.is_empty());
         let line = &result[0];
         let italic_span = line.spans.iter().find(|s| s.content.contains("italic"));
@@ -379,22 +389,24 @@ mod tests {
     }
 
     #[test]
-    fn inline_code_has_yellow_color() {
-        let result = render_markdown("use `code` here", 80);
+    fn inline_code_has_highlight_color() {
+        let theme = test_theme();
+        let result = render_markdown("use `code` here", 80, &theme);
         assert!(!result.is_empty());
         let line = &result[0];
         let code_span = line.spans.iter().find(|s| s.content.contains("code"));
         assert!(code_span.is_some());
         assert_eq!(
             code_span.expect("code span missing").style.fg,
-            Some(Color::Yellow)
+            Some(theme.highlight)
         );
     }
 
     #[test]
     fn code_block_lines_are_prefixed() {
+        let theme = test_theme();
         let input = "```\nlet x = 1;\n```";
-        let result = render_markdown(input, 80);
+        let result = render_markdown(input, 80, &theme);
         // Find a line that contains the code
         let code_line = result
             .iter()
@@ -403,14 +415,14 @@ mod tests {
         let code_line = code_line.expect("code line missing");
         // First span should be the prefix
         assert!(code_line.spans[0].content.contains('\u{2502}'));
-        assert_eq!(code_line.spans[0].style.fg, Some(Color::DarkGray));
+        assert_eq!(code_line.spans[0].style.fg, Some(theme.fg_secondary));
         // Second span is the content
-        assert_eq!(code_line.spans[1].style.fg, Some(Color::Green));
+        assert_eq!(code_line.spans[1].style.fg, Some(theme.success));
     }
 
     #[test]
     fn unordered_list_has_bullet() {
-        let result = render_markdown("- item one\n- item two", 80);
+        let result = render_markdown("- item one\n- item two", 80, &test_theme());
         let has_bullet = result
             .iter()
             .any(|l| l.spans.iter().any(|s| s.content.contains('\u{2022}')));
@@ -419,7 +431,7 @@ mod tests {
 
     #[test]
     fn ordered_list_has_numbers() {
-        let result = render_markdown("1. first\n2. second", 80);
+        let result = render_markdown("1. first\n2. second", 80, &test_theme());
         let has_number = result
             .iter()
             .any(|l| l.spans.iter().any(|s| s.content.contains("1.")));
@@ -428,7 +440,7 @@ mod tests {
 
     #[test]
     fn horizontal_rule_spans_width() {
-        let result = render_markdown("---", 40);
+        let result = render_markdown("---", 40, &test_theme());
         let rule_line = result
             .iter()
             .find(|l| l.spans.iter().any(|s| s.content.contains('\u{2500}')));
@@ -440,7 +452,7 @@ mod tests {
 
     #[test]
     fn blockquote_has_prefix_and_italic() {
-        let result = render_markdown("> quoted text", 80);
+        let result = render_markdown("> quoted text", 80, &test_theme());
         let quote_line = result.iter().find(|l| {
             l.spans
                 .iter()
@@ -464,7 +476,7 @@ mod tests {
 
     #[test]
     fn paragraphs_separated_by_blank_lines() {
-        let result = render_markdown("First paragraph.\n\nSecond paragraph.", 80);
+        let result = render_markdown("First paragraph.\n\nSecond paragraph.", 80, &test_theme());
         // There should be blank lines separating paragraphs
         let blank_count = result
             .iter()
@@ -480,7 +492,7 @@ mod tests {
     #[test]
     fn nested_formatting_bold_inside_italic_no_crash() {
         let input = "*italic and **bold inside** italic*";
-        let result = render_markdown(input, 80);
+        let result = render_markdown(input, 80, &test_theme());
         // Should not crash; just verify we get output
         assert!(!result.is_empty());
         // The text content should be present somewhere in the spans
@@ -495,7 +507,7 @@ mod tests {
     #[test]
     fn very_long_lines_handled() {
         let long_line = "x".repeat(10000);
-        let result = render_markdown(&long_line, 80);
+        let result = render_markdown(&long_line, 80, &test_theme());
         assert!(!result.is_empty());
         let all_text: String = result
             .iter()
@@ -506,7 +518,7 @@ mod tests {
 
     #[test]
     fn empty_heading_no_crash() {
-        let result = render_markdown("# ", 80);
+        let result = render_markdown("# ", 80, &test_theme());
         // Should not crash; may produce an empty heading line
         // (pulldown-cmark treats "# " as a heading with empty text)
         let _ = result;
@@ -514,8 +526,9 @@ mod tests {
 
     #[test]
     fn code_block_with_no_language_renders() {
+        let theme = test_theme();
         let input = "```\nfn main() {}\n```";
-        let result = render_markdown(input, 80);
+        let result = render_markdown(input, 80, &theme);
         let code_line = result
             .iter()
             .find(|l| l.spans.iter().any(|s| s.content.contains("fn main")));
@@ -523,14 +536,14 @@ mod tests {
         let code_line = code_line.unwrap();
         // Should still have the prefix
         assert!(code_line.spans[0].content.contains('\u{2502}'));
-        // Code text should be green
-        assert_eq!(code_line.spans[1].style.fg, Some(Color::Green));
+        // Code text should use success color
+        assert_eq!(code_line.spans[1].style.fg, Some(theme.success));
     }
 
     #[test]
     fn deeply_nested_lists_render() {
         let input = "- Level 1\n  - Level 2\n    - Level 3\n      - Level 4\n        - Level 5";
-        let result = render_markdown(input, 80);
+        let result = render_markdown(input, 80, &test_theme());
         // Should not crash and should produce some output
         assert!(!result.is_empty());
         // At least the top-level items should be present
@@ -547,7 +560,7 @@ mod tests {
         // A single newline in a paragraph produces a SoftBreak event.
         // We want it rendered as a visible line break, not collapsed to a space.
         let input = "line one\nline two\nline three";
-        let result = render_markdown(input, 80);
+        let result = render_markdown(input, 80, &test_theme());
 
         let line_texts: Vec<String> = result
             .iter()
@@ -576,7 +589,7 @@ mod tests {
         // Tabs should be expanded to non-breaking spaces so they appear
         // as visible indentation instead of being swallowed by the parser.
         let input = "Idées :\n\tUne barre de progrès\n\tAjouter un truc";
-        let result = render_markdown(input, 80);
+        let result = render_markdown(input, 80, &test_theme());
 
         let all_text: String = result
             .iter()
@@ -596,7 +609,7 @@ mod tests {
         // Leading spaces should also be preserved so that manually
         // indented content (like "    - item") keeps its visual indent.
         let input = "Idées :\n    - Une barre de progrès\n    - Ajouter un truc";
-        let result = render_markdown(input, 80);
+        let result = render_markdown(input, 80, &test_theme());
 
         let all_text: String = result
             .iter()

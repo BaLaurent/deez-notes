@@ -1,10 +1,12 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph, Widget, Wrap},
 };
+
+use crate::config::theme::Theme;
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -27,11 +29,12 @@ pub fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 /// Popup asking the user to confirm note deletion.
 pub struct ConfirmDeleteDialog<'a> {
     note_title: &'a str,
+    theme: &'a Theme,
 }
 
 impl<'a> ConfirmDeleteDialog<'a> {
-    pub fn new(note_title: &'a str) -> Self {
-        Self { note_title }
+    pub fn new(note_title: &'a str, theme: &'a Theme) -> Self {
+        Self { note_title, theme }
     }
 }
 
@@ -42,15 +45,15 @@ impl Widget for ConfirmDeleteDialog<'_> {
 
         let block = Block::bordered()
             .title(" Delete Note ")
-            .border_style(Style::default().fg(Color::Red));
+            .border_style(Style::default().fg(self.theme.error));
 
         let text = vec![
             Line::from(format!("Delete '{}'?", self.note_title)),
             Line::from(""),
             Line::from(vec![
-                Span::styled("[Y]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled("[Y]", Style::default().fg(self.theme.error).add_modifier(Modifier::BOLD)),
                 Span::raw("es  "),
-                Span::styled("[N]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled("[N]", Style::default().fg(self.theme.success).add_modifier(Modifier::BOLD)),
                 Span::raw("o"),
             ]),
         ];
@@ -70,11 +73,12 @@ impl Widget for ConfirmDeleteDialog<'_> {
 pub struct TextInputDialog<'a> {
     title: &'a str,
     input: &'a str,
+    theme: &'a Theme,
 }
 
 impl<'a> TextInputDialog<'a> {
-    pub fn new(title: &'a str, input: &'a str) -> Self {
-        Self { title, input }
+    pub fn new(title: &'a str, input: &'a str, theme: &'a Theme) -> Self {
+        Self { title, input, theme }
     }
 }
 
@@ -85,7 +89,7 @@ impl Widget for TextInputDialog<'_> {
 
         let block = Block::bordered()
             .title(format!(" {} ", self.title))
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_style(Style::default().fg(self.theme.accent));
 
         let display = format!("{}│", self.input);
 
@@ -93,7 +97,7 @@ impl Widget for TextInputDialog<'_> {
             Line::from(""),
             Line::from(Span::styled(
                 display,
-                Style::default().fg(Color::White),
+                Style::default().fg(self.theme.fg_primary),
             )),
         ];
 
@@ -109,21 +113,29 @@ impl Widget for TextInputDialog<'_> {
 // ---------------------------------------------------------------------------
 
 /// Full-screen-ish overlay showing keyboard shortcuts.
-pub struct HelpDialog;
+pub struct HelpDialog<'a> {
+    theme: &'a Theme,
+}
 
-impl Widget for HelpDialog {
+impl<'a> HelpDialog<'a> {
+    pub fn new(theme: &'a Theme) -> Self {
+        Self { theme }
+    }
+}
+
+impl Widget for HelpDialog<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let popup = centered_rect(60, 21, area);
         Clear.render(popup, buf);
 
         let block = Block::bordered()
             .title(" Help - Keyboard Shortcuts ")
-            .border_style(Style::default().fg(Color::Green));
+            .border_style(Style::default().fg(self.theme.success));
 
         let key_style = Style::default()
-            .fg(Color::Yellow)
+            .fg(self.theme.highlight)
             .add_modifier(Modifier::BOLD);
-        let desc_style = Style::default().fg(Color::White);
+        let desc_style = Style::default().fg(self.theme.fg_primary);
 
         let bindings: &[(&str, &str)] = &[
             ("Ctrl+N", "New note"),
@@ -135,6 +147,7 @@ impl Widget for HelpDialog {
             ("Ctrl+T", "Filter by tag"),
             ("Ctrl+S", "Sort notes"),
             ("Ctrl+R", "Refresh"),
+            ("Ctrl+P", "Select theme"),
             ("Tab", "Switch panel"),
             ("↑↓/j/k", "Navigate"),
             ("Enter", "Select/Open"),
@@ -164,31 +177,32 @@ impl Widget for HelpDialog {
 // ---------------------------------------------------------------------------
 
 /// Popup listing sort options with the selected one highlighted.
-pub struct SortMenuDialog {
+pub struct SortMenuDialog<'a> {
     selected: usize,
+    theme: &'a Theme,
 }
 
-impl SortMenuDialog {
-    pub fn new(selected: usize) -> Self {
-        Self { selected }
+impl<'a> SortMenuDialog<'a> {
+    pub fn new(selected: usize, theme: &'a Theme) -> Self {
+        Self { selected, theme }
     }
 }
 
-impl Widget for SortMenuDialog {
+impl Widget for SortMenuDialog<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let popup = centered_rect(30, 8, area);
         Clear.render(popup, buf);
 
         let block = Block::bordered()
             .title(" Sort By ")
-            .border_style(Style::default().fg(Color::Yellow));
+            .border_style(Style::default().fg(self.theme.highlight));
 
         let options = ["Modified Date", "Created Date", "Title"];
 
-        let normal_style = Style::default().fg(Color::White);
+        let normal_style = Style::default().fg(self.theme.fg_primary);
         let highlight_style = Style::default()
-            .fg(Color::Black)
-            .bg(Color::Yellow)
+            .fg(self.theme.fg_selection)
+            .bg(self.theme.highlight)
             .add_modifier(Modifier::BOLD);
 
         let lines: Vec<Line<'_>> = options
@@ -212,12 +226,67 @@ impl Widget for SortMenuDialog {
 }
 
 // ---------------------------------------------------------------------------
+// ThemeMenuDialog
+// ---------------------------------------------------------------------------
+
+/// Popup listing available themes with the selected one highlighted.
+pub struct ThemeMenuDialog<'a> {
+    selected: usize,
+    theme_names: &'a [String],
+    theme: &'a Theme,
+}
+
+impl<'a> ThemeMenuDialog<'a> {
+    pub fn new(selected: usize, theme_names: &'a [String], theme: &'a Theme) -> Self {
+        Self { selected, theme_names, theme }
+    }
+}
+
+impl Widget for ThemeMenuDialog<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let height = (self.theme_names.len() as u16 + 2).min(area.height);
+        let popup = centered_rect(30, height, area);
+        Clear.render(popup, buf);
+
+        let block = Block::bordered()
+            .title(" Theme ")
+            .border_style(Style::default().fg(self.theme.accent));
+
+        let normal_style = Style::default().fg(self.theme.fg_primary);
+        let highlight_style = Style::default()
+            .fg(self.theme.fg_selection)
+            .bg(self.theme.accent)
+            .add_modifier(Modifier::BOLD);
+
+        let lines: Vec<Line<'_>> = self
+            .theme_names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let style = if i == self.selected {
+                    highlight_style
+                } else {
+                    normal_style
+                };
+                let prefix = if i == self.selected { " ▸ " } else { "   " };
+                Line::from(Span::styled(format!("{}{}", prefix, name), style))
+            })
+            .collect();
+
+        Paragraph::new(lines)
+            .block(block)
+            .render(popup, buf);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::theme::Theme;
     use ratatui::{buffer::Buffer, layout::Rect};
 
     #[test]
@@ -242,29 +311,42 @@ mod tests {
 
     #[test]
     fn confirm_delete_renders_without_panic() {
+        let theme = Theme::terminal(&[]);
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
-        ConfirmDeleteDialog::new("My Note").render(area, &mut buf);
+        ConfirmDeleteDialog::new("My Note", &theme).render(area, &mut buf);
     }
 
     #[test]
     fn text_input_renders_without_panic() {
+        let theme = Theme::terminal(&[]);
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
-        TextInputDialog::new("New Note", "hello").render(area, &mut buf);
+        TextInputDialog::new("New Note", "hello", &theme).render(area, &mut buf);
     }
 
     #[test]
     fn help_dialog_renders_without_panic() {
+        let theme = Theme::terminal(&[]);
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
-        HelpDialog.render(area, &mut buf);
+        HelpDialog::new(&theme).render(area, &mut buf);
     }
 
     #[test]
     fn sort_menu_renders_without_panic() {
+        let theme = Theme::terminal(&[]);
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
-        SortMenuDialog::new(1).render(area, &mut buf);
+        SortMenuDialog::new(1, &theme).render(area, &mut buf);
+    }
+
+    #[test]
+    fn theme_menu_renders_without_panic() {
+        let theme = Theme::terminal(&[]);
+        let names = vec!["Terminal".into(), "Catppuccin".into(), "Custom".into()];
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        ThemeMenuDialog::new(0, &names, &theme).render(area, &mut buf);
     }
 }

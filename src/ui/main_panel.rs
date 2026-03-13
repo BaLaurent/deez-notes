@@ -1,12 +1,13 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Paragraph, Widget},
 };
 
 use crate::app::{AppState, PanelFocus};
+use crate::config::theme::Theme;
 use crate::core::note::Note;
 use crate::render::markdown::render_markdown;
 
@@ -14,18 +15,19 @@ use crate::render::markdown::render_markdown;
 pub struct MainPanel<'a> {
     state: &'a AppState,
     notes: &'a [Note],
+    theme: &'a Theme,
 }
 
 impl<'a> MainPanel<'a> {
-    pub fn new(state: &'a AppState, notes: &'a [Note]) -> Self {
-        Self { state, notes }
+    pub fn new(state: &'a AppState, notes: &'a [Note], theme: &'a Theme) -> Self {
+        Self { state, notes, theme }
     }
 }
 
 impl<'a> Widget for MainPanel<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let border_style = if self.state.focus == PanelFocus::MainPanel {
-            Style::default().fg(Color::Cyan)
+            Style::default().fg(self.theme.accent)
         } else {
             Style::default()
         };
@@ -35,14 +37,14 @@ impl<'a> Widget for MainPanel<'a> {
                 "Preview".to_string(),
                 vec![Line::from(Span::styled(
                     "No note selected",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(self.theme.fg_secondary),
                 ))],
             ),
             NoteContent::Loading { title } => (
                 title,
                 vec![Line::from(Span::styled(
                     "Loading...",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(self.theme.fg_secondary),
                 ))],
             ),
             NoteContent::Ready { title, content } => {
@@ -50,7 +52,7 @@ impl<'a> Widget for MainPanel<'a> {
                     (title, cache.lines.clone())
                 } else {
                     let inner_width = area.width.saturating_sub(2);
-                    let rendered = render_markdown(&content, inner_width);
+                    let rendered = render_markdown(&content, inner_width, self.theme);
                     (title, rendered)
                 }
             }
@@ -107,6 +109,7 @@ fn selected_note_content(state: &AppState, notes: &[Note]) -> NoteContent {
 mod tests {
     use super::*;
     use crate::app::AppState;
+    use crate::config::theme::Theme;
     use crate::core::note::Note;
     use chrono::Local;
     use ratatui::{buffer::Buffer, layout::Rect};
@@ -127,9 +130,10 @@ mod tests {
     fn empty_state_renders_without_panic() {
         let state = AppState::default();
         let notes: Vec<Note> = vec![];
+        let theme = Theme::terminal(&[]);
         let area = Rect::new(0, 0, 60, 20);
         let mut buf = Buffer::empty(area);
-        let widget = MainPanel::new(&state, &notes);
+        let widget = MainPanel::new(&state, &notes, &theme);
         widget.render(area, &mut buf);
     }
 
@@ -142,9 +146,10 @@ mod tests {
             ..AppState::default()
         };
 
+        let theme = Theme::terminal(&[]);
         let area = Rect::new(0, 0, 60, 20);
         let mut buf = Buffer::empty(area);
-        let widget = MainPanel::new(&state, &notes);
+        let widget = MainPanel::new(&state, &notes, &theme);
         widget.render(area, &mut buf);
     }
 
@@ -157,9 +162,10 @@ mod tests {
             ..AppState::default()
         };
 
+        let theme = Theme::terminal(&[]);
         let area = Rect::new(0, 0, 60, 20);
         let mut buf = Buffer::empty(area);
-        let widget = MainPanel::new(&state, &notes);
+        let widget = MainPanel::new(&state, &notes, &theme);
         widget.render(area, &mut buf);
     }
 
@@ -172,9 +178,10 @@ mod tests {
             ..AppState::default()
         };
 
+        let theme = Theme::terminal(&[]);
         let area = Rect::new(0, 0, 40, 10);
         let mut buf = Buffer::empty(area);
-        let widget = MainPanel::new(&state, &notes);
+        let widget = MainPanel::new(&state, &notes, &theme);
         widget.render(area, &mut buf);
         // Verify it renders without panic (border color is applied internally)
     }

@@ -37,6 +37,7 @@ pub enum AppMode {
     ConfirmDelete,
     Help,
     Rename,
+    ThemeMenu,
 }
 
 /// A semantic action produced by the keybinding layer.
@@ -67,6 +68,7 @@ pub enum KeyAction {
     Char(char),
     Backspace,
     ViewReadOnly,
+    ThemeMenu,
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +161,7 @@ pub enum AppAction {
 // ---------------------------------------------------------------------------
 
 use crate::config::settings::Config;
+use crate::config::theme::Theme;
 use crate::core::note_manager::NoteManager;
 use crate::core::search::fuzzy_search;
 use crate::core::sort::sort_notes;
@@ -169,8 +172,12 @@ pub struct App {
     pub note_manager: NoteManager,
     pub config: Config,
     pub state: AppState,
+    pub current_theme: Theme,
+    /// All available themes: built-in + user-defined from config.
+    pub available_themes: Vec<Theme>,
     pub sort_menu_index: usize,
     pub tag_filter_index: usize,
+    pub theme_menu_index: usize,
     pub should_quit: bool,
     /// Whether the UI needs a redraw. Set to `true` on any input or resize event;
     /// cleared after `terminal.draw()` completes.
@@ -203,12 +210,21 @@ impl App {
             state.sort_ascending,
         );
 
+        let mut available_themes = Theme::builtin_themes(&config.colors.tag_colors);
+        for custom in &config.themes {
+            available_themes.push(Theme::from_config(custom));
+        }
+        let current_theme = available_themes[0].clone();
+
         let mut app = Self {
             note_manager,
             config,
             state,
+            current_theme,
+            available_themes,
             sort_menu_index: 0,
             tag_filter_index: 0,
+            theme_menu_index: 0,
             should_quit: false,
             dirty: true,
         };
@@ -237,6 +253,7 @@ impl App {
             AppMode::ConfirmDelete => self.handle_confirm_delete(action),
             AppMode::TagFilter => self.handle_tag_filter(action),
             AppMode::SortMenu => self.handle_sort_menu(action),
+            AppMode::ThemeMenu => self.handle_theme_menu(action),
             AppMode::Help => self.handle_help(action),
         }
     }
@@ -378,6 +395,16 @@ impl App {
                 } else {
                     Ok(AppAction::None)
                 }
+            }
+            KeyAction::ThemeMenu => {
+                self.state.mode = AppMode::ThemeMenu;
+                // Pre-select the current theme in the menu.
+                self.theme_menu_index = self
+                    .available_themes
+                    .iter()
+                    .position(|t| t.name == self.current_theme.name)
+                    .unwrap_or(0);
+                Ok(AppAction::None)
             }
             _ => Ok(AppAction::None),
         }
@@ -593,6 +620,37 @@ impl App {
         }
     }
 
+    // -- Theme menu mode ------------------------------------------------------
+
+    fn handle_theme_menu(&mut self, action: KeyAction) -> anyhow::Result<AppAction> {
+        let count = self.available_themes.len();
+
+        match action {
+            KeyAction::NavigateUp => {
+                if self.theme_menu_index > 0 {
+                    self.theme_menu_index -= 1;
+                }
+                Ok(AppAction::None)
+            }
+            KeyAction::NavigateDown => {
+                if self.theme_menu_index < count.saturating_sub(1) {
+                    self.theme_menu_index += 1;
+                }
+                Ok(AppAction::None)
+            }
+            KeyAction::Select => {
+                self.select_theme(self.theme_menu_index);
+                self.state.mode = AppMode::Normal;
+                Ok(AppAction::None)
+            }
+            KeyAction::Cancel => {
+                self.state.mode = AppMode::Normal;
+                Ok(AppAction::None)
+            }
+            _ => Ok(AppAction::None),
+        }
+    }
+
     // -- Help mode ------------------------------------------------------------
 
     fn handle_help(&mut self, action: KeyAction) -> anyhow::Result<AppAction> {
@@ -712,7 +770,7 @@ impl App {
         }
 
         // Cache miss — render and store.
-        let lines = crate::render::markdown::render_markdown(content, width);
+        let lines = crate::render::markdown::render_markdown(content, width, &self.current_theme);
         self.state.cached_markdown = Some(MarkdownCache {
             content_hash,
             rendered_width: width,
@@ -735,6 +793,15 @@ impl App {
             .cached_markdown
             .as_ref()
             .map(|c| c.lines.len().saturating_sub(1))
+    }
+
+    /// Apply the theme at the given index in available_themes.
+    pub fn select_theme(&mut self, index: usize) {
+        if let Some(theme) = self.available_themes.get(index) {
+            self.current_theme = theme.clone();
+            self.invalidate_markdown_cache();
+            self.set_status(format!("Theme: {}", self.current_theme.name));
+        }
     }
 
     /// Set a status message.

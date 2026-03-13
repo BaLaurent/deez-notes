@@ -14,6 +14,26 @@ pub struct Config {
     pub ui: UiConfig,
     pub sort: SortConfig,
     pub colors: ColorsConfig,
+    /// User-defined custom themes (listed alongside built-in themes).
+    pub themes: Vec<CustomThemeConfig>,
+}
+
+/// A custom theme defined in the config file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CustomThemeConfig {
+    pub name: String,
+    pub fg_primary: String,
+    pub fg_secondary: String,
+    pub accent: String,
+    pub highlight: String,
+    pub success: String,
+    pub error: String,
+    pub bg_main: String,
+    pub bg_bar: String,
+    pub bg_selection: String,
+    pub fg_selection: String,
+    #[serde(default)]
+    pub tag_colors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

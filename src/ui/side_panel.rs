@@ -1,13 +1,14 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, StatefulWidget, Widget},
 };
 
 use crate::app::{AppState, PanelFocus};
 use crate::config::settings::UiConfig;
+use crate::config::theme::Theme;
 use crate::core::note::Note;
 
 /// Side panel widget displaying the list of notes with title, date, and tag badges.
@@ -17,18 +18,18 @@ pub struct SidePanel<'a> {
     show_tags: bool,
     show_dates: bool,
     date_format: String,
-    tag_colors: Vec<Color>,
+    theme: &'a Theme,
 }
 
 impl<'a> SidePanel<'a> {
-    pub fn new(state: &'a AppState, notes: &'a [Note], ui_config: &UiConfig, tag_colors: &[String]) -> Self {
+    pub fn new(state: &'a AppState, notes: &'a [Note], ui_config: &UiConfig, theme: &'a Theme) -> Self {
         Self {
             state,
             notes,
             show_tags: ui_config.show_tags,
             show_dates: ui_config.show_dates,
             date_format: ui_config.date_format.clone(),
-            tag_colors: tag_colors.iter().map(|c| parse_color(c)).collect(),
+            theme,
         }
     }
 }
@@ -39,7 +40,7 @@ impl Widget for SidePanel<'_> {
         let title = format!(" Notes ({count}) ");
 
         let border_style = if self.state.focus == PanelFocus::SidePanel {
-            Style::default().fg(Color::Cyan)
+            Style::default().fg(self.theme.accent)
         } else {
             Style::default()
         };
@@ -63,16 +64,16 @@ impl Widget for SidePanel<'_> {
                     let date_str = note.modified.format(&self.date_format).to_string();
                     spans.push(Span::styled(
                         format!(" | {date_str}"),
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(self.theme.fg_secondary),
                     ));
                 }
 
                 if self.show_tags && !note.tags.is_empty() {
                     for (i, tag) in note.tags.iter().enumerate() {
-                        let color = if self.tag_colors.is_empty() {
-                            Color::White
+                        let color = if self.theme.tag_colors.is_empty() {
+                            self.theme.fg_primary
                         } else {
-                            self.tag_colors[i % self.tag_colors.len()]
+                            self.theme.tag_colors[i % self.theme.tag_colors.len()]
                         };
                         spans.push(Span::styled(
                             format!(" [{tag}]"),
@@ -90,7 +91,7 @@ impl Widget for SidePanel<'_> {
             .highlight_style(
                 Style::default()
                     .add_modifier(Modifier::REVERSED)
-                    .fg(Color::Cyan),
+                    .fg(self.theme.accent),
             )
             .highlight_symbol("> ");
 
@@ -106,24 +107,12 @@ impl Widget for SidePanel<'_> {
 }
 
 
-fn parse_color(name: &str) -> Color {
-    match name {
-        "cyan" => Color::Cyan,
-        "magenta" => Color::Magenta,
-        "yellow" => Color::Yellow,
-        "green" => Color::Green,
-        "red" => Color::Red,
-        "blue" => Color::Blue,
-        "white" => Color::White,
-        _ => Color::White,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::app::AppState;
     use crate::config::settings::UiConfig;
+    use crate::config::theme::Theme;
     use crate::core::note::Note;
     use chrono::Local;
     use std::path::PathBuf;
@@ -145,8 +134,9 @@ mod tests {
         let notes: Vec<Note> = vec![];
         let ui_config = UiConfig::default();
         let tag_colors: Vec<String> = vec!["cyan".into(), "magenta".into()];
+        let theme = Theme::terminal(&tag_colors);
 
-        let panel = SidePanel::new(&state, &notes, &ui_config, &tag_colors);
+        let panel = SidePanel::new(&state, &notes, &ui_config, &theme);
         let area = Rect::new(0, 0, 30, 10);
         let mut buf = Buffer::empty(area);
         panel.render(area, &mut buf);
@@ -167,24 +157,11 @@ mod tests {
 
         let ui_config = UiConfig::default();
         let tag_colors: Vec<String> = vec!["cyan".into(), "magenta".into(), "yellow".into()];
+        let theme = Theme::terminal(&tag_colors);
 
-        let panel = SidePanel::new(&state, &notes, &ui_config, &tag_colors);
+        let panel = SidePanel::new(&state, &notes, &ui_config, &theme);
         let area = Rect::new(0, 0, 40, 10);
         let mut buf = Buffer::empty(area);
         panel.render(area, &mut buf);
-    }
-
-    #[test]
-    fn parse_color_known_colors() {
-        assert_eq!(parse_color("cyan"), Color::Cyan);
-        assert_eq!(parse_color("magenta"), Color::Magenta);
-        assert_eq!(parse_color("yellow"), Color::Yellow);
-        assert_eq!(parse_color("green"), Color::Green);
-        assert_eq!(parse_color("red"), Color::Red);
-        assert_eq!(parse_color("blue"), Color::Blue);
-        assert_eq!(parse_color("white"), Color::White);
-        // Unknown falls back to White.
-        assert_eq!(parse_color("unknown"), Color::White);
-        assert_eq!(parse_color(""), Color::White);
     }
 }

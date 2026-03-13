@@ -26,6 +26,7 @@ pub fn map_key_event(event: KeyEvent, mode: &AppMode) -> Option<KeyAction> {
             (KeyCode::Char('s'), true) => Some(KeyAction::Sort),
             (KeyCode::Char('r'), true) => Some(KeyAction::Refresh),
             (KeyCode::Char('v'), true) => Some(KeyAction::ViewReadOnly),
+            (KeyCode::Char('p'), true) => Some(KeyAction::ThemeMenu),
             (KeyCode::Tab, false) => Some(KeyAction::ToggleFocus),
             (KeyCode::Esc, false) => Some(KeyAction::Cancel),
             (KeyCode::Char('q'), true) => Some(KeyAction::Quit),
@@ -55,7 +56,7 @@ pub fn map_key_event(event: KeyEvent, mode: &AppMode) -> Option<KeyAction> {
         // -----------------------------------------------------------------
         // List-selection modes: TagFilter, SortMenu
         // -----------------------------------------------------------------
-        AppMode::TagFilter | AppMode::SortMenu => match (code, ctrl) {
+        AppMode::TagFilter | AppMode::SortMenu | AppMode::ThemeMenu => match (code, ctrl) {
             (KeyCode::Up, false) | (KeyCode::Char('k'), false) => Some(KeyAction::NavigateUp),
             (KeyCode::Down, false) | (KeyCode::Char('j'), false) => Some(KeyAction::NavigateDown),
             (KeyCode::Enter, false) => Some(KeyAction::Select),
@@ -465,6 +466,7 @@ mod tests {
                 's' => assert_eq!(result, Some(KeyAction::Sort)),
                 'r' => assert_eq!(result, Some(KeyAction::Refresh)),
                 'v' => assert_eq!(result, Some(KeyAction::ViewReadOnly)),
+                'p' => assert_eq!(result, Some(KeyAction::ThemeMenu)),
                 'q' => assert_eq!(result, Some(KeyAction::Quit)),
                 _ => assert_eq!(result, None, "Ctrl+{} should be unmapped", c),
             }

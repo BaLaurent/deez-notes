@@ -1,23 +1,25 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::Span,
     widgets::Widget,
 };
 
 use crate::app::{AppMode, AppState};
+use crate::config::theme::Theme;
 use crate::core::note::Note;
 
 /// Single-line status bar showing note count, active filter, and contextual shortcuts.
 pub struct StatusBar<'a> {
     state: &'a AppState,
     notes: &'a [Note],
+    theme: &'a Theme,
 }
 
 impl<'a> StatusBar<'a> {
-    pub fn new(state: &'a AppState, notes: &'a [Note]) -> Self {
-        Self { state, notes }
+    pub fn new(state: &'a AppState, notes: &'a [Note], theme: &'a Theme) -> Self {
+        Self { state, notes, theme }
     }
 
     /// Build the left-side info string: note count, filter, or search results.
@@ -38,9 +40,9 @@ impl<'a> StatusBar<'a> {
     /// Build shortcut spans for the current mode.
     fn shortcut_spans(&self) -> Vec<Span<'static>> {
         let key_style = Style::default()
-            .fg(Color::White)
+            .fg(self.theme.fg_primary)
             .add_modifier(Modifier::BOLD);
-        let desc_style = Style::default().fg(Color::DarkGray);
+        let desc_style = Style::default().fg(self.theme.fg_secondary);
         let sep = Span::styled("  ", desc_style);
 
         match self.state.mode {
@@ -53,6 +55,7 @@ impl<'a> StatusBar<'a> {
                     ("^F", " Search"),
                     ("^T", " Tags"),
                     ("^S", " Sort"),
+                    ("^P", " Theme"),
                     ("^Q", " Quit"),
                 ];
                 build_shortcut_spans(&pairs, key_style, desc_style, sep)
@@ -75,7 +78,7 @@ impl<'a> StatusBar<'a> {
                 ];
                 build_shortcut_spans(&pairs, key_style, desc_style, sep)
             }
-            AppMode::SortMenu => {
+            AppMode::SortMenu | AppMode::ThemeMenu => {
                 let pairs = [
                     ("\u{2191}\u{2193}", " Navigate"),
                     ("Enter", " Select"),
@@ -130,7 +133,7 @@ impl<'a> Widget for StatusBar<'a> {
             return;
         }
 
-        let bg_style = Style::default().bg(Color::DarkGray);
+        let bg_style = Style::default().bg(self.theme.bg_bar);
 
         // Fill the entire line with background color.
         for x in area.x..area.x + area.width {
@@ -142,11 +145,11 @@ impl<'a> Widget for StatusBar<'a> {
 
         // Left info
         let left_text = self.left_info();
-        let left_style = Style::default().fg(Color::White).bg(Color::DarkGray);
+        let left_style = Style::default().fg(self.theme.fg_primary).bg(self.theme.bg_bar);
 
         // Status message (center)
         let status_msg = self.state.status_message.clone().unwrap_or_default();
-        let msg_style = Style::default().fg(Color::Yellow).bg(Color::DarkGray);
+        let msg_style = Style::default().fg(self.theme.highlight).bg(self.theme.bg_bar);
 
         // Right shortcuts
         let shortcut_spans = self.shortcut_spans();
@@ -162,7 +165,7 @@ impl<'a> Widget for StatusBar<'a> {
             let right_start = area.x + (width - right_text_len) as u16;
             let mut x = right_start;
             for span in &shortcut_spans {
-                let style = span.style.bg(Color::DarkGray);
+                let style = span.style.bg(self.theme.bg_bar);
                 buf.set_string(x, area.y, span.content.as_ref(), style);
                 x += span.content.len() as u16;
             }
@@ -193,9 +196,11 @@ mod tests {
 
     #[test]
     fn empty_state_renders_without_panic() {
+        use crate::config::theme::Theme;
+        let theme = Theme::terminal(&[]);
         let state = AppState::default();
         let notes: Vec<crate::core::note::Note> = vec![];
-        let bar = StatusBar::new(&state, &notes);
+        let bar = StatusBar::new(&state, &notes, &theme);
         let area = Rect::new(0, 0, 80, 1);
         let mut buf = Buffer::empty(area);
         bar.render(area, &mut buf);
@@ -203,13 +208,15 @@ mod tests {
 
     #[test]
     fn with_filter_shows_tag() {
+        use crate::config::theme::Theme;
+        let theme = Theme::terminal(&[]);
         let notes: Vec<crate::core::note::Note> = vec![];
         let state = AppState {
             active_tag_filter: Some("rust".to_string()),
             filtered_indices: vec![],
             ..AppState::default()
         };
-        let bar = StatusBar::new(&state, &notes);
+        let bar = StatusBar::new(&state, &notes, &theme);
         let area = Rect::new(0, 0, 120, 1);
         let mut buf = Buffer::empty(area);
         bar.render(area, &mut buf);

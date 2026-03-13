@@ -19,6 +19,23 @@ A fast, keyboard-driven TUI note manager for Markdown files. Built with Rust and
 
 ## Installation
 
+### Pre-built binaries
+
+Download the latest release from the [releases page](https://github.com/BaLaurent/deez-notes/releases).
+
+**Linux:**
+
+```bash
+# Download and install globally
+curl -L https://github.com/BaLaurent/deez-notes/releases/latest/download/deez-notes-linux-amd64 -o deez-notes
+chmod +x deez-notes
+sudo mv deez-notes /usr/bin/deez-notes
+```
+
+**Windows:**
+
+Download `deez-notes-windows-amd64.exe` from the [releases page](https://github.com/BaLaurent/deez-notes/releases) and add it to your PATH.
+
 ### From source
 
 ```bash

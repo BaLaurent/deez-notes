@@ -30,6 +30,7 @@ pub fn map_key_event(event: KeyEvent, mode: &AppMode) -> Option<KeyAction> {
             (KeyCode::Tab, false) => Some(KeyAction::ToggleFocus),
             (KeyCode::Esc, false) => Some(KeyAction::Cancel),
             (KeyCode::Char('q'), true) => Some(KeyAction::Quit),
+            (KeyCode::Char('k'), true) => Some(KeyAction::Help),
             (KeyCode::Char('?'), true) => Some(KeyAction::Help),
             (KeyCode::F(1), false) => Some(KeyAction::Help),
             (KeyCode::F(2), false) => Some(KeyAction::Rename),
@@ -80,6 +81,7 @@ pub fn map_key_event(event: KeyEvent, mode: &AppMode) -> Option<KeyAction> {
             (KeyCode::Esc, _)
             | (KeyCode::F(1), false)
             | (KeyCode::Char('q'), false) => Some(KeyAction::Cancel),
+            (KeyCode::Char('k'), true) => Some(KeyAction::Cancel),
             (KeyCode::Char('?'), true) => Some(KeyAction::Cancel),
             _ => None,
         },
@@ -462,6 +464,7 @@ mod tests {
                 'n' => assert_eq!(result, Some(KeyAction::Create)),
                 'd' => assert_eq!(result, Some(KeyAction::Delete)),
                 'f' => assert_eq!(result, Some(KeyAction::Search)),
+                'k' => assert_eq!(result, Some(KeyAction::Help)),
                 't' => assert_eq!(result, Some(KeyAction::TagFilter)),
                 's' => assert_eq!(result, Some(KeyAction::Sort)),
                 'r' => assert_eq!(result, Some(KeyAction::Refresh)),

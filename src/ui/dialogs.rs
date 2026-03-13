@@ -125,7 +125,7 @@ impl<'a> HelpDialog<'a> {
 
 impl Widget for HelpDialog<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let popup = centered_rect(60, 21, area);
+        let popup = centered_rect(60, 22, area);
         Clear.render(popup, buf);
 
         let block = Block::bordered()
@@ -151,6 +151,7 @@ impl Widget for HelpDialog<'_> {
             ("Tab", "Switch panel"),
             ("↑↓/j/k", "Navigate"),
             ("Enter", "Select/Open"),
+            ("Ctrl+K", "Show shortcuts"),
             ("Ctrl+Q", "Quit"),
             ("F1/?", "This help"),
         ];

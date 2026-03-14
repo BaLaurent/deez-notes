@@ -23,6 +23,15 @@ impl<'a> SearchBar<'a> {
 
 impl<'a> Widget for SearchBar<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        // Fill the entire line with background color first (same as StatusBar).
+        let bg_style = Style::default().bg(self.theme.bg_bar);
+        for x in area.x..area.x + area.width {
+            for y in area.y..area.y + area.height {
+                buf[(x, y)].set_style(bg_style);
+                buf[(x, y)].set_char(' ');
+            }
+        }
+
         let prefix = Span::styled(" Search: ", Style::default().fg(self.theme.accent));
 
         let content_span = match self.state.mode {

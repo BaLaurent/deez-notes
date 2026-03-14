@@ -24,6 +24,8 @@ pub struct Theme {
 
 impl Theme {
     /// Terminal theme using ANSI standard colors — adapts to the user's terminal palette.
+    /// All background colors use `Reset` so dynamic theme tools (Matugen, pywal, etc.)
+    /// control the palette entirely. The bars blend with the terminal background.
     /// Takes tag_colors from config so the user's preferences are respected.
     pub fn terminal(config_tag_colors: &[String]) -> Self {
         let tag_colors = if config_tag_colors.is_empty() {
@@ -41,7 +43,7 @@ impl Theme {
             success: Color::Green,
             error: Color::Red,
             bg_main: Color::Reset,
-            bg_bar: Color::DarkGray,
+            bg_bar: Color::Reset,
             bg_selection: Color::Cyan,
             fg_selection: Color::Black,
             tag_colors,

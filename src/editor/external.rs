@@ -87,6 +87,21 @@ pub(crate) fn command_exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Returns `true` if the `mcat` on `$PATH` is the mtools FAT-disk utility
+/// (identically named) rather than the Markdown viewer we actually want.
+/// mtools' mcat always prints "Mtools" in its output, even for invalid flags.
+fn is_mtools_mcat() -> bool {
+    Command::new("mcat")
+        .arg("--version")
+        .output()
+        .map(|o| {
+            let text = [&o.stdout[..], &o.stderr[..]].concat();
+            let text = String::from_utf8_lossy(&text);
+            text.contains("Mtools")
+        })
+        .unwrap_or(false)
+}
+
 // ---------------------------------------------------------------------------
 // Viewer (read-only)
 // ---------------------------------------------------------------------------
@@ -97,11 +112,18 @@ const FALLBACK_VIEWERS: &[&str] = &["mcat", "cat"];
 /// Resolve which viewer binary would be used.
 ///
 /// Resolution order: mcat -> cat (first available on `$PATH`).
+/// Note: the mtools package ships an identically-named `mcat` (FAT-disk
+/// utility) that is NOT a Markdown viewer.  We detect and skip it.
 pub fn find_viewer() -> anyhow::Result<String> {
     for candidate in FALLBACK_VIEWERS {
-        if command_exists(candidate) {
-            return Ok((*candidate).to_string());
+        if !command_exists(candidate) {
+            continue;
         }
+        // Skip mtools' mcat — it's a FAT-disk utility, not a Markdown viewer.
+        if *candidate == "mcat" && is_mtools_mcat() {
+            continue;
+        }
+        return Ok((*candidate).to_string());
     }
 
     bail!(

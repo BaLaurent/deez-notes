@@ -43,6 +43,10 @@ pub struct GeneralConfig {
     pub notes_dir: String,
     /// Preferred editor binary. Empty means fall back to $EDITOR then defaults.
     pub editor: String,
+    /// Preferred pager binary for read-only view mode. Empty means fall back to `cat`.
+    pub pager: String,
+    /// Arguments passed to the pager before the file path (e.g. `["--paging", "always"]`).
+    pub pager_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -89,6 +93,8 @@ impl Default for GeneralConfig {
         Self {
             notes_dir,
             editor: String::new(),
+            pager: String::new(),
+            pager_args: Vec::new(),
         }
     }
 }
@@ -232,6 +238,8 @@ mod tests {
             cfg.general.notes_dir
         );
         assert!(cfg.general.editor.is_empty());
+        assert!(cfg.general.pager.is_empty());
+        assert!(cfg.general.pager_args.is_empty());
 
         // UI
         assert_eq!(cfg.ui.side_panel_width_percent, 30);
@@ -254,6 +262,8 @@ mod tests {
 [general]
 notes_dir = "/tmp/my-notes"
 editor = "vim"
+pager = "mcat"
+pager_args = ["--paging", "always"]
 
 [ui]
 side_panel_width_percent = 40
@@ -274,6 +284,8 @@ tag_colors = ["red", "blue"]
 
         assert_eq!(cfg.general.notes_dir, "/tmp/my-notes");
         assert_eq!(cfg.general.editor, "vim");
+        assert_eq!(cfg.general.pager, "mcat");
+        assert_eq!(cfg.general.pager_args, vec!["--paging", "always"]);
         assert_eq!(cfg.ui.side_panel_width_percent, 40);
         assert!(!cfg.ui.show_tags);
         assert!(!cfg.ui.show_dates);

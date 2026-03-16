@@ -162,15 +162,20 @@ fn run_app(
                                 terminal::disable_raw_mode()?;
                                 execute!(io::stdout(), Show)?;
 
-                                let result = editor::external::open_in_viewer(&path);
+                                let pager = if app.config.general.pager.is_empty() {
+                                    None
+                                } else {
+                                    Some(app.config.general.pager.as_str())
+                                };
+                                let result = editor::external::open_in_viewer(
+                                    &path,
+                                    pager,
+                                    &app.config.general.pager_args,
+                                );
 
                                 match &result {
-                                    Ok(viewer) => {
-                                        // Pagers (mcat, less, bat…) handle scrolling
-                                        // themselves — no need to wait.
-                                        // Non-pagers (cat) dump and exit instantly —
-                                        // wait so the user can actually read.
-                                        if !editor::external::viewer_is_pager(viewer) {
+                                    Ok(is_pager) => {
+                                        if !is_pager {
                                             wait_for_keypress();
                                         }
                                     }

@@ -87,76 +87,33 @@ pub(crate) fn command_exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Returns `true` if the `mcat` on `$PATH` is the mtools FAT-disk utility
-/// (identically named) rather than the Markdown viewer we actually want.
-/// mtools' mcat always prints "Mtools" in its output, even for invalid flags.
-fn is_mtools_mcat() -> bool {
-    Command::new("mcat")
-        .arg("--version")
-        .output()
-        .map(|o| {
-            let text = [&o.stdout[..], &o.stderr[..]].concat();
-            let text = String::from_utf8_lossy(&text);
-            text.contains("Mtools")
-        })
-        .unwrap_or(false)
-}
-
 // ---------------------------------------------------------------------------
 // Viewer (read-only)
 // ---------------------------------------------------------------------------
 
-/// Fallback viewers tried in order: mcat (pretty Markdown viewer) then cat.
-const FALLBACK_VIEWERS: &[&str] = &["mcat", "cat"];
-
-/// Resolve which viewer binary would be used.
-///
-/// Resolution order: mcat -> cat (first available on `$PATH`).
-/// Note: the mtools package ships an identically-named `mcat` (FAT-disk
-/// utility) that is NOT a Markdown viewer.  We detect and skip it.
-pub fn find_viewer() -> anyhow::Result<String> {
-    for candidate in FALLBACK_VIEWERS {
-        if !command_exists(candidate) {
-            continue;
-        }
-        // Skip mtools' mcat — it's a FAT-disk utility, not a Markdown viewer.
-        if *candidate == "mcat" && is_mtools_mcat() {
-            continue;
-        }
-        return Ok((*candidate).to_string());
-    }
-
-    bail!(
-        "No viewer found. Install one of: {}",
-        FALLBACK_VIEWERS.join(", ")
-    )
-}
-
-/// Viewers that are interactive pagers (handle scrolling themselves).
-const PAGER_VIEWERS: &[&str] = &["mcat", "less", "more", "bat", "most"];
-
-/// Returns `true` if the given viewer name is an interactive pager that handles
-/// its own input (scrolling, quitting, etc.).
-pub fn viewer_is_pager(viewer: &str) -> bool {
-    PAGER_VIEWERS.contains(&viewer)
-}
-
 /// Open `path` in a read-only viewer, blocking until the viewer exits.
 ///
-/// Viewer resolution: mcat if available, otherwise cat.
-/// Returns the viewer name used so callers can decide whether to wait for a
-/// keypress (non-pager viewers like `cat` dump output and exit immediately).
+/// If `pager` is provided, it is used with `pager_args` prepended before the
+/// file path.  Otherwise falls back to `cat` with no extra arguments.
 ///
-/// When the viewer is `mcat`, `--paging always` is added so its built-in
-/// pager (`less -r`) stays open instead of dumping output and exiting.
-pub fn open_in_viewer(path: &Path) -> anyhow::Result<String> {
-    let viewer = find_viewer()?;
+/// Returns `true` when the viewer is a configured pager (interactive — handles
+/// scrolling itself), `false` when it is the `cat` fallback (dumps output and
+/// exits immediately, so the caller should wait for a keypress).
+pub fn open_in_viewer(
+    path: &Path,
+    pager: Option<&str>,
+    pager_args: &[String],
+) -> anyhow::Result<bool> {
+    let (viewer, is_pager) = match pager {
+        Some(name) if !name.is_empty() => (name.to_string(), true),
+        _ => ("cat".to_string(), false),
+    };
 
     let mut cmd = Command::new(&viewer);
-    // mcat in "auto" paging mode may skip the pager when launched from a TUI
-    // app, so force it.
-    if viewer == "mcat" {
-        cmd.arg("--paging").arg("always");
+    if is_pager {
+        for arg in pager_args {
+            cmd.arg(arg);
+        }
     }
     let status = cmd
         .arg(path)
@@ -167,7 +124,7 @@ pub fn open_in_viewer(path: &Path) -> anyhow::Result<String> {
         ))?;
 
     if status.success() {
-        return Ok(viewer);
+        return Ok(is_pager);
     }
 
     match status.code() {
@@ -249,24 +206,38 @@ mod tests {
     }
 
     #[test]
-    fn find_viewer_returns_available_viewer() {
-        let result = find_viewer();
-        let viewer = result.expect("should find at least cat");
-        assert!(
-            FALLBACK_VIEWERS.contains(&viewer.as_str()),
-            "expected a fallback viewer, got: {}",
-            viewer
-        );
+    fn open_in_viewer_uses_configured_pager() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let file = dir.path().join("test.md");
+        std::fs::write(&file, "# Hello").expect("write file");
+
+        // `cat` is available everywhere — use it as the "configured pager".
+        let args = vec![];
+        let is_pager = open_in_viewer(&file, Some("cat"), &args)
+            .expect("cat should succeed");
+        assert!(is_pager, "configured pager should report is_pager = true");
     }
 
     #[test]
-    fn find_viewer_prefers_mcat_over_cat() {
-        let viewer = find_viewer().unwrap();
-        if command_exists("mcat") {
-            assert_eq!(viewer, "mcat");
-        } else {
-            assert_eq!(viewer, "cat");
-        }
+    fn open_in_viewer_falls_back_to_cat() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let file = dir.path().join("test.md");
+        std::fs::write(&file, "# Hello").expect("write file");
+
+        let is_pager = open_in_viewer(&file, None, &[])
+            .expect("cat fallback should succeed");
+        assert!(!is_pager, "cat fallback should report is_pager = false");
+    }
+
+    #[test]
+    fn open_in_viewer_ignores_empty_pager() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let file = dir.path().join("test.md");
+        std::fs::write(&file, "# Hello").expect("write file");
+
+        let is_pager = open_in_viewer(&file, Some(""), &[])
+            .expect("empty pager should fall back to cat");
+        assert!(!is_pager);
     }
 
     #[test]

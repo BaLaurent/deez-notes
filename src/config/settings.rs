@@ -1,13 +1,13 @@
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // Config structs
 // ---------------------------------------------------------------------------
 
 /// Top-level application configuration, loaded from TOML.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Config {
     pub general: GeneralConfig,
@@ -19,7 +19,7 @@ pub struct Config {
 }
 
 /// A custom theme defined in the config file.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CustomThemeConfig {
     pub name: String,
     pub fg_primary: String,
@@ -36,7 +36,7 @@ pub struct CustomThemeConfig {
     pub tag_colors: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct GeneralConfig {
     /// Path to the notes directory. Supports ~ for home dir.
@@ -49,7 +49,7 @@ pub struct GeneralConfig {
     pub pager_args: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct UiConfig {
     /// Width of the side panel as a percentage (0..100).
@@ -62,9 +62,11 @@ pub struct UiConfig {
     pub date_format: String,
     /// Whether search should include note content (not just titles).
     pub search_content: bool,
+    /// Name of the selected theme (persisted across restarts).
+    pub default_theme: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SortConfig {
     /// One of: "modified", "created", "title".
@@ -73,7 +75,7 @@ pub struct SortConfig {
     pub default_ascending: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ColorsConfig {
     /// Ordered list of color names cycled across tags.
@@ -107,6 +109,7 @@ impl Default for UiConfig {
             show_dates: true,
             date_format: "%Y-%m-%d".to_string(),
             search_content: true,
+            default_theme: String::new(),
         }
     }
 }
@@ -181,6 +184,35 @@ pub fn load_config(path: Option<&Path>) -> Config {
             Config::default()
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Saving
+// ---------------------------------------------------------------------------
+
+/// Resolve the config file path (same logic as load_config).
+pub fn resolve_config_path(path: Option<&Path>) -> Option<PathBuf> {
+    match path {
+        Some(p) => Some(p.to_path_buf()),
+        None => dirs::config_dir().map(|dir| dir.join("deez-notes").join("config.toml")),
+    }
+}
+
+/// Save configuration to disk.
+///
+/// Creates the parent directory if it does not exist.
+/// Errors are silently ignored (best-effort persistence).
+pub fn save_config(config: &Config, path: &Path) {
+    let contents = match toml::to_string_pretty(config) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let _ = std::fs::write(path, contents);
 }
 
 // ---------------------------------------------------------------------------

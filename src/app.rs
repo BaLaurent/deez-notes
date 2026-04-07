@@ -160,7 +160,9 @@ pub enum AppAction {
 // App — top-level application struct
 // ---------------------------------------------------------------------------
 
-use crate::config::settings::Config;
+use std::path::PathBuf;
+
+use crate::config::settings::{self, Config};
 use crate::config::theme::Theme;
 use crate::core::note_manager::NoteManager;
 use crate::core::search::fuzzy_search;
@@ -171,6 +173,8 @@ use crate::core::tags::{filter_by_tag, tag_filter_items};
 pub struct App {
     pub note_manager: NoteManager,
     pub config: Config,
+    /// Path to the config file on disk (for persisting changes).
+    pub config_path: Option<PathBuf>,
     pub state: AppState,
     pub current_theme: Theme,
     /// All available themes: built-in + user-defined from config.
@@ -187,7 +191,7 @@ pub struct App {
 impl App {
     /// Create a new App from a Config. Scans the notes directory, builds the
     /// initial filtered list, and applies the configured sort.
-    pub fn new(config: Config) -> anyhow::Result<Self> {
+    pub fn new(config: Config, config_path: Option<PathBuf>) -> anyhow::Result<Self> {
         let notes_dir = config.resolve_notes_dir();
         let mut note_manager = NoteManager::new(notes_dir)?;
         note_manager.scan()?;
@@ -214,17 +218,29 @@ impl App {
         for custom in &config.themes {
             available_themes.push(Theme::from_config(custom));
         }
-        let current_theme = available_themes[0].clone();
+
+        // Restore saved theme (fall back to first theme if not found).
+        let saved_theme = &config.ui.default_theme;
+        let theme_index = if saved_theme.is_empty() {
+            0
+        } else {
+            available_themes
+                .iter()
+                .position(|t| t.name == *saved_theme)
+                .unwrap_or(0)
+        };
+        let current_theme = available_themes[theme_index].clone();
 
         let mut app = Self {
             note_manager,
             config,
+            config_path,
             state,
             current_theme,
             available_themes,
             sort_menu_index: 0,
             tag_filter_index: 0,
-            theme_menu_index: 0,
+            theme_menu_index: theme_index,
             should_quit: false,
             dirty: true,
         };
@@ -610,6 +626,17 @@ impl App {
                 }
                 self.resort();
                 self.state.mode = AppMode::Normal;
+
+                // Persist sort preferences.
+                self.config.sort.default_mode = match self.state.sort_mode {
+                    SortMode::ByModified => "modified",
+                    SortMode::ByCreated => "created",
+                    SortMode::ByTitle => "title",
+                }
+                .to_string();
+                self.config.sort.default_ascending = self.state.sort_ascending;
+                self.persist_config();
+
                 Ok(AppAction::None)
             }
             KeyAction::Cancel => {
@@ -795,18 +822,27 @@ impl App {
             .map(|c| c.lines.len().saturating_sub(1))
     }
 
-    /// Apply the theme at the given index in available_themes.
+    /// Apply the theme at the given index in available_themes and persist.
     pub fn select_theme(&mut self, index: usize) {
         if let Some(theme) = self.available_themes.get(index) {
             self.current_theme = theme.clone();
             self.invalidate_markdown_cache();
             self.set_status(format!("Theme: {}", self.current_theme.name));
+            self.config.ui.default_theme = self.current_theme.name.clone();
+            self.persist_config();
         }
     }
 
     /// Set a status message.
     pub fn set_status(&mut self, msg: impl Into<String>) {
         self.state.status_message = Some(msg.into());
+    }
+
+    /// Write the current config to disk (best-effort, errors silently ignored).
+    fn persist_config(&self) {
+        if let Some(path) = &self.config_path {
+            settings::save_config(&self.config, path);
+        }
     }
 
     // -- Private helpers ------------------------------------------------------
@@ -870,7 +906,7 @@ mod tests {
         write_md(dir.path(), "alpha.md", "Alpha", &["rust"]);
         write_md(dir.path(), "beta.md", "Beta", &["rust", "tui"]);
         write_md(dir.path(), "gamma.md", "Gamma", &["python"]);
-        App::new(test_config(dir.path())).unwrap()
+        App::new(test_config(dir.path()), None).unwrap()
     }
 
     // -- Construction ---------------------------------------------------------
@@ -908,7 +944,7 @@ mod tests {
     fn new_empty_directory() {
         let dir = TempDir::new().unwrap();
         let cfg = test_config(dir.path());
-        let app = App::new(cfg).unwrap();
+        let app = App::new(cfg, None).unwrap();
 
         assert!(app.notes().is_empty());
         assert!(app.state.filtered_indices.is_empty());
@@ -994,7 +1030,7 @@ mod tests {
     fn delete_noop_when_no_notes() {
         let dir = TempDir::new().unwrap();
         let cfg = test_config(dir.path());
-        let mut app = App::new(cfg).unwrap();
+        let mut app = App::new(cfg, None).unwrap();
 
         app.handle_action(KeyAction::Delete).unwrap();
         assert_eq!(app.state.mode, AppMode::Normal);
@@ -1066,7 +1102,7 @@ mod tests {
     fn rename_noop_when_no_notes() {
         let dir = TempDir::new().unwrap();
         let cfg = test_config(dir.path());
-        let mut app = App::new(cfg).unwrap();
+        let mut app = App::new(cfg, None).unwrap();
 
         app.handle_action(KeyAction::Rename).unwrap();
         assert_eq!(app.state.mode, AppMode::Normal);
@@ -1551,7 +1587,7 @@ mod tests {
     fn selected_note_real_index_none_when_empty() {
         let dir = TempDir::new().unwrap();
         let cfg = test_config(dir.path());
-        let app = App::new(cfg).unwrap();
+        let app = App::new(cfg, None).unwrap();
 
         assert!(app.selected_note_real_index().is_none());
     }
@@ -1597,7 +1633,7 @@ mod tests {
     fn view_read_only_noop_when_no_notes() {
         let dir = TempDir::new().unwrap();
         let cfg = test_config(dir.path());
-        let mut app = App::new(cfg).unwrap();
+        let mut app = App::new(cfg, None).unwrap();
 
         let action = app.handle_action(KeyAction::ViewReadOnly).unwrap();
         assert_eq!(action, AppAction::None);
@@ -1607,7 +1643,7 @@ mod tests {
     fn select_noop_when_no_notes() {
         let dir = TempDir::new().unwrap();
         let cfg = test_config(dir.path());
-        let mut app = App::new(cfg).unwrap();
+        let mut app = App::new(cfg, None).unwrap();
 
         let action = app.handle_action(KeyAction::Select).unwrap();
         assert_eq!(action, AppAction::None);

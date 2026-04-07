@@ -44,6 +44,7 @@ fn main() -> Result<()> {
 
     // Load config (from CLI path or default location).
     let config_path = cli.config.as_deref().map(Path::new);
+    let resolved_config_path = config::settings::resolve_config_path(config_path);
     let mut config = config::settings::load_config(config_path);
 
     // Apply CLI overrides.
@@ -71,7 +72,7 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Build the application.
-    let mut app = App::new(config)?;
+    let mut app = App::new(config, resolved_config_path)?;
 
     // Run the event loop.
     let result = run_app(&mut terminal, &mut app);

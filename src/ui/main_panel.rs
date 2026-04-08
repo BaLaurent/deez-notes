@@ -86,12 +86,26 @@ fn selected_note_content(state: &AppState, notes: &[Note]) -> NoteContent {
         return NoteContent::None;
     }
 
-    let idx = state.selected_index;
-    if idx >= state.filtered_indices.len() {
+    // Account for folder entries at the top of the display list.
+    let folder_count = state.display_folders.len();
+    if state.selected_index < folder_count {
+        // Folder selected — show cached folder preview if available.
+        if state.cached_markdown.is_some() {
+            let folder_name = &state.display_folders[state.selected_index];
+            return NoteContent::Ready {
+                title: format!("\u{1F4C1} {folder_name}"),
+                content: String::new(),
+            };
+        }
         return NoteContent::None;
     }
 
-    let note_idx = state.filtered_indices[idx];
+    let note_list_idx = state.selected_index - folder_count;
+    if note_list_idx >= state.filtered_indices.len() {
+        return NoteContent::None;
+    }
+
+    let note_idx = state.filtered_indices[note_list_idx];
     let note = &notes[note_idx];
 
     match &note.content {

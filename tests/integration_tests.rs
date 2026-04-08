@@ -49,7 +49,7 @@ fn crud_complete_cycle() {
     let mut mgr = NoteManager::new(tmp.path().to_path_buf()).unwrap();
 
     // Create
-    let path = mgr.create_note("Test").unwrap();
+    let path = mgr.create_note("Test", std::path::Path::new("")).unwrap();
     assert!(path.exists(), "created file should exist on disk");
     assert_eq!(mgr.notes().len(), 1);
 
@@ -99,7 +99,7 @@ fn multiple_notes_crud() {
     // Create 5 notes
     let titles = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"];
     for title in &titles {
-        mgr.create_note(title).unwrap();
+        mgr.create_note(title, std::path::Path::new("")).unwrap();
     }
     assert_eq!(mgr.notes().len(), 5);
 
@@ -155,7 +155,7 @@ fn empty_directory_scan() {
     mgr.scan().unwrap();
     assert_eq!(mgr.notes().len(), 0, "empty dir should yield 0 notes");
 
-    mgr.create_note("First Note").unwrap();
+    mgr.create_note("First Note", std::path::Path::new("")).unwrap();
     // Rescan to simulate a fresh load
     mgr.scan().unwrap();
     assert_eq!(mgr.notes().len(), 1, "should find 1 note after create + scan");
@@ -571,20 +571,21 @@ fn hidden_md_files_are_loaded() {
 }
 
 #[test]
-fn subdirectories_do_not_crash() {
+fn subdirectories_are_scanned_recursively() {
     let tmp = TempDir::new().unwrap();
     write_md(tmp.path(), "note.md", "Note", &[], "Body.");
 
-    // Create a subdirectory (should not be traversed or cause a crash)
+    // Create a subdirectory with a note inside
     fs::create_dir(tmp.path().join("subdir")).unwrap();
     fs::write(tmp.path().join("subdir").join("nested.md"), "---\ntitle: Nested\ncreated: 2025-01-01T00:00:00\nmodified: 2025-01-01T00:00:00\ntags: []\n---\n\n").unwrap();
 
     let mut mgr = NoteManager::new(tmp.path().to_path_buf()).unwrap();
     mgr.scan().unwrap();
 
-    // Only the top-level note should be found (scan does read_dir, not recursive)
-    assert_eq!(mgr.notes().len(), 1);
-    assert_eq!(mgr.notes()[0].title, "Note");
+    // Both notes should be found (scan is recursive)
+    assert_eq!(mgr.notes().len(), 2);
+    assert_eq!(mgr.folders.len(), 1);
+    assert_eq!(mgr.folders[0], std::path::PathBuf::from("subdir"));
 }
 
 // ===========================================================================
@@ -596,7 +597,7 @@ fn file_deleted_externally_then_scan() {
     let tmp = TempDir::new().unwrap();
     let mut mgr = NoteManager::new(tmp.path().to_path_buf()).unwrap();
 
-    let path = mgr.create_note("Ephemeral").unwrap();
+    let path = mgr.create_note("Ephemeral", std::path::Path::new("")).unwrap();
     assert_eq!(mgr.notes().len(), 1);
 
     // Manually delete the file from disk
@@ -616,7 +617,7 @@ fn file_modified_externally_then_refresh() {
     let tmp = TempDir::new().unwrap();
     let mut mgr = NoteManager::new(tmp.path().to_path_buf()).unwrap();
 
-    mgr.create_note("Mutable Note").unwrap();
+    mgr.create_note("Mutable Note", std::path::Path::new("")).unwrap();
     assert_eq!(mgr.notes()[0].title, "Mutable Note");
 
     // Modify the file on disk
@@ -643,7 +644,7 @@ fn create_note_then_delete_file_then_delete_note_errors() {
     let tmp = TempDir::new().unwrap();
     let mut mgr = NoteManager::new(tmp.path().to_path_buf()).unwrap();
 
-    let path = mgr.create_note("Doomed").unwrap();
+    let path = mgr.create_note("Doomed", std::path::Path::new("")).unwrap();
 
     // Delete file externally
     fs::remove_file(&path).unwrap();

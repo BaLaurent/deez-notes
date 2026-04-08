@@ -38,6 +38,9 @@ pub enum AppMode {
     Help,
     Rename,
     ThemeMenu,
+    MoveNote,
+    CreateFolder,
+    ConfirmDeleteFolder,
 }
 
 /// A semantic action produced by the keybinding layer.
@@ -69,6 +72,8 @@ pub enum KeyAction {
     Backspace,
     ViewReadOnly,
     ThemeMenu,
+    MoveNote,
+    CreateFolder,
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +123,10 @@ pub struct AppState {
     pub status_message: Option<String>,
     /// Cached markdown rendering for the currently selected note.
     pub cached_markdown: Option<MarkdownCache>,
+    /// Current folder being browsed (relative to notes_dir, empty = root).
+    pub current_folder: PathBuf,
+    /// Folder names displayed at the top of the side panel.
+    pub display_folders: Vec<String>,
 }
 
 impl Default for AppState {
@@ -135,6 +144,8 @@ impl Default for AppState {
             input_buffer: String::new(),
             status_message: None,
             cached_markdown: None,
+            current_folder: PathBuf::new(),
+            display_folders: Vec::new(),
         }
     }
 }
@@ -182,6 +193,7 @@ pub struct App {
     pub sort_menu_index: usize,
     pub tag_filter_index: usize,
     pub theme_menu_index: usize,
+    pub move_folder_index: usize,
     pub should_quit: bool,
     /// Whether the UI needs a redraw. Set to `true` on any input or resize event;
     /// cleared after `terminal.draw()` completes.
@@ -205,14 +217,7 @@ impl App {
             ..AppState::default()
         };
 
-        // Build initial filtered_indices (all notes) and sort them.
-        state.filtered_indices = (0..note_manager.notes().len()).collect();
-        sort_notes(
-            &mut state.filtered_indices,
-            note_manager.notes(),
-            state.sort_mode,
-            state.sort_ascending,
-        );
+        // filtered_indices and display_folders will be built by refilter() below.
 
         let mut available_themes = Theme::builtin_themes(&config.colors.tag_colors);
         for custom in &config.themes {
@@ -241,9 +246,13 @@ impl App {
             sort_menu_index: 0,
             tag_filter_index: 0,
             theme_menu_index: theme_index,
+            move_folder_index: 0,
             should_quit: false,
             dirty: true,
         };
+
+        // Build initial filtered_indices with folder-awareness.
+        app.refilter();
 
         // Load content for the initially selected note so the main panel
         // doesn't show "Loading..." on first render.
@@ -271,6 +280,9 @@ impl App {
             AppMode::SortMenu => self.handle_sort_menu(action),
             AppMode::ThemeMenu => self.handle_theme_menu(action),
             AppMode::Help => self.handle_help(action),
+            AppMode::MoveNote => self.handle_move_note(action),
+            AppMode::CreateFolder => self.handle_create_folder(action),
+            AppMode::ConfirmDeleteFolder => self.handle_confirm_delete_folder(action),
         }
     }
 
@@ -287,7 +299,7 @@ impl App {
                 Ok(AppAction::None)
             }
             KeyAction::NavigateDown => {
-                let max = self.state.filtered_indices.len().saturating_sub(1);
+                let max = self.total_display_count().saturating_sub(1);
                 if self.state.selected_index < max {
                     self.state.selected_index += 1;
                     self.state.scroll_offset = 0;
@@ -296,6 +308,19 @@ impl App {
                 Ok(AppAction::None)
             }
             KeyAction::Select | KeyAction::Edit => {
+                // If a folder is selected, enter it
+                if let Some(folder_name) = self.selected_folder_name().map(|s| s.to_string()) {
+                    if folder_name == ".." {
+                        self.navigate_parent_folder();
+                    } else {
+                        let new_folder = self.state.current_folder.join(&folder_name);
+                        self.state.current_folder = new_folder;
+                        self.state.selected_index = 0;
+                        self.refilter();
+                    }
+                    return Ok(AppAction::None);
+                }
+                // Otherwise, open note in editor
                 if let Some(real_idx) = self.selected_note_real_index() {
                     let path = self.note_manager.notes()[real_idx].path.clone();
                     Ok(AppAction::OpenEditor(path))
@@ -309,9 +334,33 @@ impl App {
                 Ok(AppAction::None)
             }
             KeyAction::Delete => {
+                // If a folder is selected, confirm folder deletion
+                if self.is_folder_selected() {
+                    if self.selected_folder_name().map_or(true, |n| n == "..") {
+                        return Ok(AppAction::None); // can't delete ".."
+                    }
+                    self.state.mode = AppMode::ConfirmDeleteFolder;
+                    return Ok(AppAction::None);
+                }
                 if !self.state.filtered_indices.is_empty() {
                     self.state.mode = AppMode::ConfirmDelete;
                 }
+                Ok(AppAction::None)
+            }
+            KeyAction::Backspace => {
+                self.navigate_parent_folder();
+                Ok(AppAction::None)
+            }
+            KeyAction::MoveNote => {
+                if self.selected_note_real_index().is_some() {
+                    self.move_folder_index = 0;
+                    self.state.mode = AppMode::MoveNote;
+                }
+                Ok(AppAction::None)
+            }
+            KeyAction::CreateFolder => {
+                self.state.mode = AppMode::CreateFolder;
+                self.state.input_buffer.clear();
                 Ok(AppAction::None)
             }
             KeyAction::Search => {
@@ -489,7 +538,7 @@ impl App {
                     self.state.mode = AppMode::Normal;
                     return Ok(AppAction::None);
                 }
-                let path = self.note_manager.create_note(&title)?;
+                let path = self.note_manager.create_note(&title, &self.state.current_folder)?;
                 self.refilter();
                 self.state.mode = AppMode::Normal;
                 self.set_status(format!("Created: {}", title));
@@ -690,6 +739,111 @@ impl App {
         }
     }
 
+    // -- MoveNote mode --------------------------------------------------------
+
+    fn handle_move_note(&mut self, action: KeyAction) -> anyhow::Result<AppAction> {
+        let folder_list = self.note_manager.all_folder_paths();
+        let count = folder_list.len();
+
+        match action {
+            KeyAction::NavigateUp => {
+                if self.move_folder_index > 0 {
+                    self.move_folder_index -= 1;
+                }
+                Ok(AppAction::None)
+            }
+            KeyAction::NavigateDown => {
+                if self.move_folder_index < count.saturating_sub(1) {
+                    self.move_folder_index += 1;
+                }
+                Ok(AppAction::None)
+            }
+            KeyAction::Select => {
+                if let Some(real_idx) = self.selected_note_real_index() {
+                    if let Some(target) = folder_list.get(self.move_folder_index) {
+                        let target = target.clone();
+                        self.note_manager.move_note(real_idx, &target)?;
+                        let display_name = if target.as_os_str().is_empty() {
+                            "(root)".to_string()
+                        } else {
+                            target.display().to_string()
+                        };
+                        self.set_status(format!("Moved to: {}", display_name));
+                        self.refilter();
+                    }
+                }
+                self.state.mode = AppMode::Normal;
+                Ok(AppAction::None)
+            }
+            KeyAction::Cancel => {
+                self.state.mode = AppMode::Normal;
+                Ok(AppAction::None)
+            }
+            _ => Ok(AppAction::None),
+        }
+    }
+
+    // -- CreateFolder mode ----------------------------------------------------
+
+    fn handle_create_folder(&mut self, action: KeyAction) -> anyhow::Result<AppAction> {
+        match action {
+            KeyAction::Char(c) => {
+                self.state.input_buffer.push(c);
+                Ok(AppAction::None)
+            }
+            KeyAction::Backspace => {
+                self.state.input_buffer.pop();
+                Ok(AppAction::None)
+            }
+            KeyAction::Select => {
+                let name = self.state.input_buffer.clone();
+                if !name.is_empty() {
+                    let folder_path = self.state.current_folder.join(&name);
+                    self.note_manager.create_folder(&folder_path)?;
+                    self.refilter();
+                    self.set_status(format!("Folder created: {}", name));
+                }
+                self.state.mode = AppMode::Normal;
+                Ok(AppAction::None)
+            }
+            KeyAction::Cancel => {
+                self.state.mode = AppMode::Normal;
+                Ok(AppAction::None)
+            }
+            _ => Ok(AppAction::None),
+        }
+    }
+
+    // -- ConfirmDeleteFolder mode ---------------------------------------------
+
+    fn handle_confirm_delete_folder(&mut self, action: KeyAction) -> anyhow::Result<AppAction> {
+        match action {
+            KeyAction::Select => {
+                if let Some(folder_name) = self.selected_folder_name().map(|s| s.to_string()) {
+                    if folder_name != ".." {
+                        let folder_path = self.state.current_folder.join(&folder_name);
+                        match self.note_manager.delete_folder(&folder_path) {
+                            Ok(()) => {
+                                self.set_status(format!("Deleted folder: {}", folder_name));
+                                self.refilter();
+                            }
+                            Err(e) => {
+                                self.set_status(format!("Cannot delete: {}", e));
+                            }
+                        }
+                    }
+                }
+                self.state.mode = AppMode::Normal;
+                Ok(AppAction::None)
+            }
+            KeyAction::Cancel => {
+                self.state.mode = AppMode::Normal;
+                Ok(AppAction::None)
+            }
+            _ => Ok(AppAction::None),
+        }
+    }
+
     // -- Public helpers -------------------------------------------------------
 
     /// Return the notes slice from the single source of truth (NoteManager).
@@ -708,12 +862,19 @@ impl App {
         Ok(())
     }
 
-    /// Rebuild `filtered_indices` from current search/filter/sort settings.
+    /// Rebuild `filtered_indices` and `display_folders` from current state.
     pub fn refilter(&mut self) {
         let notes = self.note_manager.notes();
+        let has_search = !self.state.search_query.is_empty();
+        let has_tag_filter = self.state.active_tag_filter.is_some();
 
-        // Start with all indices.
-        let mut indices: Vec<usize> = (0..notes.len()).collect();
+        // When searching or filtering by tag: global mode (all notes, no folders)
+        // When browsing: scope to current folder
+        let mut indices: Vec<usize> = if has_search || has_tag_filter {
+            (0..notes.len()).collect()
+        } else {
+            self.note_manager.notes_in_folder(&self.state.current_folder)
+        };
 
         // Apply tag filter using HashSet for O(n) lookup instead of O(n²).
         if let Some(ref tag) = self.state.active_tag_filter {
@@ -723,7 +884,7 @@ impl App {
         }
 
         // Apply search filter using HashSet for O(n) lookup instead of O(n²).
-        if !self.state.search_query.is_empty() {
+        if has_search {
             let search_indices: std::collections::HashSet<usize> =
                 fuzzy_search(&self.state.search_query, notes, self.config.ui.search_content)
                     .into_iter()
@@ -741,8 +902,19 @@ impl App {
 
         self.state.filtered_indices = indices;
 
-        // Clamp selected_index.
-        let max = self.state.filtered_indices.len().saturating_sub(1);
+        // Build display_folders: only in browse mode (no search/filter)
+        self.state.display_folders = if has_search || has_tag_filter {
+            Vec::new()
+        } else {
+            let mut folders = self.note_manager.subfolders_of(&self.state.current_folder);
+            if !self.state.current_folder.as_os_str().is_empty() {
+                folders.insert(0, "..".to_string());
+            }
+            folders
+        };
+
+        // Clamp selected_index to the total display count.
+        let max = self.total_display_count().saturating_sub(1);
         if self.state.selected_index > max {
             self.state.selected_index = max;
         }
@@ -753,6 +925,10 @@ impl App {
 
     /// If a note is selected, ensure its content is loaded (lazy loading).
     pub fn load_selected_content(&mut self) {
+        if let Some(folder_name) = self.selected_folder_name().map(|s| s.to_string()) {
+            self.build_folder_preview(&folder_name);
+            return;
+        }
         if let Some(real_idx) = self.selected_note_real_index() {
             if let Err(e) = self.note_manager.get_content(real_idx) {
                 self.set_status(format!("Failed to load note: {}", e));
@@ -761,13 +937,87 @@ impl App {
         self.invalidate_markdown_cache();
     }
 
-    /// Convert `selected_index` (position in `filtered_indices`) to the real
-    /// index in the notes vec. Returns `None` if no notes are displayed.
+    /// Build a preview of a folder's contents and store it in the markdown cache.
+    fn build_folder_preview(&mut self, folder_name: &str) {
+        let folder_path = if folder_name == ".." {
+            self.state
+                .current_folder
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_default()
+        } else {
+            self.state.current_folder.join(folder_name)
+        };
+
+        let subfolders = self.note_manager.subfolders_of(&folder_path);
+        let note_indices = self.note_manager.notes_in_folder(&folder_path);
+        let notes = self.note_manager.notes();
+
+        let mut lines: Vec<Line<'static>> = Vec::new();
+
+        for sub in &subfolders {
+            lines.push(Line::from(format!("\u{1F4C1} {sub}/")));
+        }
+
+        for &idx in &note_indices {
+            let note = &notes[idx];
+            let date = note.modified.format("%Y-%m-%d").to_string();
+            lines.push(Line::from(format!("  {} | {}", note.title, date)));
+        }
+
+        if lines.is_empty() {
+            lines.push(Line::from("(empty)"));
+        }
+
+        self.state.cached_markdown = Some(MarkdownCache {
+            content_hash: 0,
+            rendered_width: 0,
+            lines,
+        });
+    }
+
+    /// Convert `selected_index` to the real index in the notes vec.
+    /// Returns `None` if a folder is selected or no notes are displayed.
     pub fn selected_note_real_index(&self) -> Option<usize> {
+        let folder_count = self.state.display_folders.len();
+        if self.state.selected_index < folder_count {
+            return None; // a folder is selected
+        }
+        let note_list_idx = self.state.selected_index - folder_count;
+        self.state.filtered_indices.get(note_list_idx).copied()
+    }
+
+    /// Whether the currently selected item is a folder entry.
+    pub fn is_folder_selected(&self) -> bool {
+        self.state.selected_index < self.state.display_folders.len()
+    }
+
+    /// Return the name of the currently selected folder, or `None`.
+    pub fn selected_folder_name(&self) -> Option<&str> {
         self.state
-            .filtered_indices
+            .display_folders
             .get(self.state.selected_index)
-            .copied()
+            .map(|s| s.as_str())
+    }
+
+    /// Total number of items displayed (folders + notes).
+    pub fn total_display_count(&self) -> usize {
+        self.state.display_folders.len() + self.state.filtered_indices.len()
+    }
+
+    /// Navigate to the parent folder (no-op if at root).
+    fn navigate_parent_folder(&mut self) {
+        if self.state.current_folder.as_os_str().is_empty() {
+            return; // already at root
+        }
+        self.state.current_folder = self
+            .state
+            .current_folder
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_default();
+        self.state.selected_index = 0;
+        self.refilter();
     }
 
     /// Invalidate the markdown rendering cache.

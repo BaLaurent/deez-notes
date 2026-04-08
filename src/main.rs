@@ -310,6 +310,37 @@ fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
                 overlay,
             );
         }
+        AppMode::MoveNote => {
+            let folder_paths = app.note_manager.all_folder_paths();
+            let labels: Vec<String> = folder_paths
+                .iter()
+                .map(|p| {
+                    if p.as_os_str().is_empty() {
+                        "(Root)".to_string()
+                    } else {
+                        p.display().to_string()
+                    }
+                })
+                .collect();
+            frame.render_widget(
+                ui::dialogs::MoveNoteDialog::new(app.move_folder_index, &labels, theme),
+                area,
+            );
+        }
+        AppMode::CreateFolder => {
+            frame.render_widget(
+                ui::dialogs::TextInputDialog::new("New Folder", &app.state.input_buffer, theme),
+                area,
+            );
+        }
+        AppMode::ConfirmDeleteFolder => {
+            if let Some(name) = app.selected_folder_name() {
+                frame.render_widget(
+                    ui::dialogs::ConfirmDeleteFolderDialog::new(name, theme),
+                    area,
+                );
+            }
+        }
         _ => {}
     }
 }

@@ -27,6 +27,9 @@ pub fn map_key_event(event: KeyEvent, mode: &AppMode) -> Option<KeyAction> {
             (KeyCode::Char('r'), true) => Some(KeyAction::Refresh),
             (KeyCode::Char('v'), true) => Some(KeyAction::ViewReadOnly),
             (KeyCode::Char('p'), true) => Some(KeyAction::ThemeMenu),
+            (KeyCode::Char('x'), true) => Some(KeyAction::MoveNote),
+            (KeyCode::Char('g'), true) => Some(KeyAction::CreateFolder),
+            (KeyCode::Backspace, false) => Some(KeyAction::Backspace),
             (KeyCode::Tab, false) => Some(KeyAction::ToggleFocus),
             (KeyCode::Esc, false) => Some(KeyAction::Cancel),
             (KeyCode::Char('q'), true) => Some(KeyAction::Quit),
@@ -42,9 +45,9 @@ pub fn map_key_event(event: KeyEvent, mode: &AppMode) -> Option<KeyAction> {
         },
 
         // -----------------------------------------------------------------
-        // Text-input modes: Search, CreateNote, Rename
+        // Text-input modes: Search, CreateNote, Rename, CreateFolder
         // -----------------------------------------------------------------
-        AppMode::Search | AppMode::CreateNote | AppMode::Rename => match (code, ctrl) {
+        AppMode::Search | AppMode::CreateNote | AppMode::Rename | AppMode::CreateFolder => match (code, ctrl) {
             (KeyCode::Esc, _) => Some(KeyAction::Cancel),
             (KeyCode::Enter, false) => Some(KeyAction::Select),
             (KeyCode::Backspace, false) => Some(KeyAction::Backspace),
@@ -55,9 +58,9 @@ pub fn map_key_event(event: KeyEvent, mode: &AppMode) -> Option<KeyAction> {
         },
 
         // -----------------------------------------------------------------
-        // List-selection modes: TagFilter, SortMenu
+        // List-selection modes: TagFilter, SortMenu, MoveNote
         // -----------------------------------------------------------------
-        AppMode::TagFilter | AppMode::SortMenu | AppMode::ThemeMenu => match (code, ctrl) {
+        AppMode::TagFilter | AppMode::SortMenu | AppMode::ThemeMenu | AppMode::MoveNote => match (code, ctrl) {
             (KeyCode::Up, false) | (KeyCode::Char('k'), false) => Some(KeyAction::NavigateUp),
             (KeyCode::Down, false) | (KeyCode::Char('j'), false) => Some(KeyAction::NavigateDown),
             (KeyCode::Enter, false) => Some(KeyAction::Select),
@@ -66,9 +69,9 @@ pub fn map_key_event(event: KeyEvent, mode: &AppMode) -> Option<KeyAction> {
         },
 
         // -----------------------------------------------------------------
-        // ConfirmDelete — y/Enter = confirm, n/Escape = cancel
+        // ConfirmDelete / ConfirmDeleteFolder — y/Enter = confirm, n/Escape = cancel
         // -----------------------------------------------------------------
-        AppMode::ConfirmDelete => match (code, ctrl) {
+        AppMode::ConfirmDelete | AppMode::ConfirmDeleteFolder => match (code, ctrl) {
             (KeyCode::Char('y'), false) | (KeyCode::Enter, false) => Some(KeyAction::Select),
             (KeyCode::Char('n'), false) | (KeyCode::Esc, _) => Some(KeyAction::Cancel),
             _ => None,
@@ -464,7 +467,9 @@ mod tests {
                 'n' => assert_eq!(result, Some(KeyAction::Create)),
                 'd' => assert_eq!(result, Some(KeyAction::Delete)),
                 'f' => assert_eq!(result, Some(KeyAction::Search)),
+                'g' => assert_eq!(result, Some(KeyAction::CreateFolder)),
                 'k' => assert_eq!(result, Some(KeyAction::Help)),
+                'x' => assert_eq!(result, Some(KeyAction::MoveNote)),
                 't' => assert_eq!(result, Some(KeyAction::TagFilter)),
                 's' => assert_eq!(result, Some(KeyAction::Sort)),
                 'r' => assert_eq!(result, Some(KeyAction::Refresh)),

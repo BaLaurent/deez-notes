@@ -125,7 +125,7 @@ impl<'a> HelpDialog<'a> {
 
 impl Widget for HelpDialog<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let popup = centered_rect(60, 22, area);
+        let popup = centered_rect(60, 25, area);
         Clear.render(popup, buf);
 
         let block = Block::bordered()
@@ -141,16 +141,19 @@ impl Widget for HelpDialog<'_> {
             ("Ctrl+N", "New note"),
             ("Ctrl+E", "Edit in editor"),
             ("Ctrl+V", "View read-only"),
-            ("Ctrl+D", "Delete note"),
+            ("Ctrl+D", "Delete note/folder"),
             ("F2", "Rename note"),
+            ("Ctrl+X", "Move note to folder"),
+            ("Ctrl+G", "Create folder"),
+            ("Backspace", "Go to parent folder"),
             ("Ctrl+F", "Search"),
             ("Ctrl+T", "Filter by tag"),
             ("Ctrl+S", "Sort notes"),
             ("Ctrl+R", "Refresh"),
             ("Ctrl+P", "Select theme"),
             ("Tab", "Switch panel"),
-            ("↑↓/j/k", "Navigate"),
-            ("Enter", "Select/Open"),
+            ("\u{2191}\u{2193}/j/k", "Navigate"),
+            ("Enter", "Select/Open/Enter folder"),
             ("Ctrl+K", "Show shortcuts"),
             ("Ctrl+Q", "Quit"),
             ("F1/?", "This help"),
@@ -276,6 +279,104 @@ impl Widget for ThemeMenuDialog<'_> {
 
         Paragraph::new(lines)
             .block(block)
+            .render(popup, buf);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MoveNoteDialog
+// ---------------------------------------------------------------------------
+
+/// Popup listing all folders for moving a note to a different location.
+pub struct MoveNoteDialog<'a> {
+    selected: usize,
+    folder_labels: &'a [String],
+    theme: &'a Theme,
+}
+
+impl<'a> MoveNoteDialog<'a> {
+    pub fn new(selected: usize, folder_labels: &'a [String], theme: &'a Theme) -> Self {
+        Self { selected, folder_labels, theme }
+    }
+}
+
+impl Widget for MoveNoteDialog<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let height = (self.folder_labels.len() as u16 + 2).min(area.height);
+        let popup = centered_rect(40, height, area);
+        Clear.render(popup, buf);
+
+        let block = Block::bordered()
+            .title(" Move to folder ")
+            .border_style(Style::default().fg(self.theme.accent));
+
+        let normal_style = Style::default().fg(self.theme.fg_primary);
+        let highlight_style = Style::default()
+            .fg(self.theme.fg_selection)
+            .bg(self.theme.accent)
+            .add_modifier(Modifier::BOLD);
+
+        let lines: Vec<Line<'_>> = self
+            .folder_labels
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let style = if i == self.selected {
+                    highlight_style
+                } else {
+                    normal_style
+                };
+                let prefix = if i == self.selected { " \u{25b8} " } else { "   " };
+                Line::from(Span::styled(format!("{}{}", prefix, name), style))
+            })
+            .collect();
+
+        Paragraph::new(lines)
+            .block(block)
+            .render(popup, buf);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ConfirmDeleteFolderDialog
+// ---------------------------------------------------------------------------
+
+/// Popup asking the user to confirm folder deletion.
+pub struct ConfirmDeleteFolderDialog<'a> {
+    folder_name: &'a str,
+    theme: &'a Theme,
+}
+
+impl<'a> ConfirmDeleteFolderDialog<'a> {
+    pub fn new(folder_name: &'a str, theme: &'a Theme) -> Self {
+        Self { folder_name, theme }
+    }
+}
+
+impl Widget for ConfirmDeleteFolderDialog<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let popup = centered_rect(45, 7, area);
+        Clear.render(popup, buf);
+
+        let block = Block::bordered()
+            .title(" Delete Folder ")
+            .border_style(Style::default().fg(self.theme.error));
+
+        let text = vec![
+            Line::from(format!("Delete folder '{}'?", self.folder_name)),
+            Line::from("(must be empty)"),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("[Y]", Style::default().fg(self.theme.error).add_modifier(Modifier::BOLD)),
+                Span::raw("es  "),
+                Span::styled("[N]", Style::default().fg(self.theme.success).add_modifier(Modifier::BOLD)),
+                Span::raw("o"),
+            ]),
+        ];
+
+        Paragraph::new(text)
+            .block(block)
+            .wrap(Wrap { trim: false })
             .render(popup, buf);
     }
 }

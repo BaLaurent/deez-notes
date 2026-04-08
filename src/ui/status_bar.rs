@@ -50,12 +50,11 @@ impl<'a> StatusBar<'a> {
                 let pairs = [
                     ("^N", " New"),
                     ("^E", " Edit"),
-                    ("^V", " View"),
                     ("^D", " Del"),
+                    ("^X", " Move"),
+                    ("^G", " Folder"),
                     ("^F", " Search"),
-                    ("^T", " Tags"),
                     ("^S", " Sort"),
-                    ("^P", " Theme"),
                     ("^Q", " Quit"),
                 ];
                 build_shortcut_spans(&pairs, key_style, desc_style, sep)
@@ -78,7 +77,7 @@ impl<'a> StatusBar<'a> {
                 ];
                 build_shortcut_spans(&pairs, key_style, desc_style, sep)
             }
-            AppMode::SortMenu | AppMode::ThemeMenu => {
+            AppMode::SortMenu | AppMode::ThemeMenu | AppMode::MoveNote => {
                 let pairs = [
                     ("\u{2191}\u{2193}", " Navigate"),
                     ("Enter", " Select"),
@@ -86,14 +85,14 @@ impl<'a> StatusBar<'a> {
                 ];
                 build_shortcut_spans(&pairs, key_style, desc_style, sep)
             }
-            AppMode::CreateNote | AppMode::Rename => {
+            AppMode::CreateNote | AppMode::Rename | AppMode::CreateFolder => {
                 let pairs = [
                     ("Enter", " Confirm"),
                     ("Esc", " Cancel"),
                 ];
                 build_shortcut_spans(&pairs, key_style, desc_style, sep)
             }
-            AppMode::ConfirmDelete => {
+            AppMode::ConfirmDelete | AppMode::ConfirmDeleteFolder => {
                 let pairs = [
                     ("y", " Yes"),
                     ("n", " No"),

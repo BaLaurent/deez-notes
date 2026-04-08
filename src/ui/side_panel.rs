@@ -11,7 +11,7 @@ use crate::config::settings::UiConfig;
 use crate::config::theme::Theme;
 use crate::core::note::Note;
 
-/// Side panel widget displaying the list of notes with title, date, and tag badges.
+/// Side panel widget displaying folders and notes with title, date, and tag badges.
 pub struct SidePanel<'a> {
     state: &'a AppState,
     notes: &'a [Note],
@@ -36,8 +36,14 @@ impl<'a> SidePanel<'a> {
 
 impl Widget for SidePanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let count = self.state.filtered_indices.len();
-        let title = format!(" Notes ({count}) ");
+        let note_count = self.state.filtered_indices.len();
+        let current_folder = &self.state.current_folder;
+
+        let title = if current_folder.as_os_str().is_empty() {
+            format!(" Notes ({note_count}) ")
+        } else {
+            format!(" Notes ({note_count}) — /{} ", current_folder.display())
+        };
 
         let border_style = if self.state.focus == PanelFocus::SidePanel {
             Style::default().fg(self.theme.accent)
@@ -50,7 +56,25 @@ impl Widget for SidePanel<'_> {
             .border_style(border_style)
             .title(title);
 
-        let items: Vec<ListItem> = self
+        let folder_style = Style::default().fg(self.theme.highlight).add_modifier(Modifier::BOLD);
+
+        // Build folder items first
+        let folder_items: Vec<ListItem> = self
+            .state
+            .display_folders
+            .iter()
+            .map(|name| {
+                let display = if name == ".." {
+                    "\u{1F4C1} ..".to_string()
+                } else {
+                    format!("\u{1F4C1} {name}/")
+                };
+                ListItem::new(Line::from(Span::styled(display, folder_style)))
+            })
+            .collect();
+
+        // Build note items
+        let note_items: Vec<ListItem> = self
             .state
             .filtered_indices
             .iter()
@@ -86,6 +110,12 @@ impl Widget for SidePanel<'_> {
             })
             .collect();
 
+        // Combine: folders then notes
+        let mut items = folder_items;
+        items.extend(note_items);
+
+        let total = items.len();
+
         let list = List::new(items)
             .block(block)
             .highlight_style(
@@ -95,7 +125,7 @@ impl Widget for SidePanel<'_> {
             )
             .highlight_symbol("> ");
 
-        let selected = if self.state.filtered_indices.is_empty() {
+        let selected = if total == 0 {
             None
         } else {
             Some(self.state.selected_index)

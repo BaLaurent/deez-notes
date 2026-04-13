@@ -2,22 +2,38 @@
 
 A fast, keyboard-driven TUI note manager for Markdown files. Built with Rust and [Ratatui](https://ratatui.rs).
 
-![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust)
+![Rust](https://img.shields.io/badge/Rust-2024-orange?logo=rust)
 ![License](https://img.shields.io/badge/license-MIT-blue)
+[![crates.io](https://img.shields.io/crates/v/deez-notes.svg)](https://crates.io/crates/deez-notes)
+[![AUR](https://img.shields.io/aur/version/deez-notes-bin)](https://aur.archlinux.org/packages/deez-notes-bin)
 
 ## Features
 
 - Browse and preview Markdown notes with rendered formatting
+- **Folder organization** — real directory-based folders and subfolders
 - YAML front matter support (title, tags, dates)
 - Fuzzy search across note titles and content
 - Tag filtering and sorting (by modified date, creation date, or title)
-- Create, rename, and delete notes directly from the TUI
+- Create, rename, move, and delete notes directly from the TUI
 - Open notes in your preferred editor (`$EDITOR`, or configurable)
 - Read-only viewer mode with configurable pager (falls back to `cat`)
+- 6 built-in themes + custom theme support, persisted across restarts
 - Keyboard-driven with `Ctrl+` shortcuts and `j`/`k` navigation
 - Configurable via TOML (`~/.config/deez-notes/config.toml`)
 
 ## Installation
+
+### Cargo (all platforms)
+
+```bash
+cargo install deez-notes
+```
+
+### Arch Linux (AUR)
+
+```bash
+yay -S deez-notes-bin
+```
 
 ### Pre-built binaries
 
@@ -26,7 +42,6 @@ Download the latest release from the [releases page](https://github.com/BaLauren
 **Linux:**
 
 ```bash
-# Download and install globally
 curl -L https://github.com/BaLaurent/deez-notes/releases/latest/download/deez-notes-linux-amd64 -o deez-notes
 chmod +x deez-notes
 sudo mv deez-notes /usr/bin/deez-notes
@@ -36,13 +51,7 @@ sudo mv deez-notes /usr/bin/deez-notes
 
 Download `deez-notes-windows-amd64.exe` from the [releases page](https://github.com/BaLaurent/deez-notes/releases) and add it to your PATH.
 
-### From source
-
-```bash
-cargo install --path .
-```
-
-### Build manually
+### Build from source
 
 ```bash
 git clone https://github.com/BaLaurent/deez-notes.git
@@ -87,7 +96,8 @@ deez-notes --editor nvim
 |-----|--------|
 | `j` / `Down` | Move down |
 | `k` / `Up` | Move up |
-| `Enter` | Select / preview note |
+| `Enter` | Open folder / preview note |
+| `Backspace` | Go up one folder level |
 | `Tab` | Toggle focus (side panel / main panel) |
 | `PageUp` / `PageDown` | Scroll page |
 | `Home` / `End` | Jump to first / last |
@@ -99,8 +109,10 @@ deez-notes --editor nvim
 | `Ctrl+E` | Edit note in external editor |
 | `Ctrl+V` | View note in read-only viewer |
 | `Ctrl+N` | Create new note |
-| `Ctrl+D` / `Delete` | Delete note |
+| `Ctrl+D` / `Delete` | Delete note / empty folder |
 | `F2` | Rename note |
+| `F` | Create new folder |
+| `m` | Move note to folder |
 | `Ctrl+F` | Search notes |
 | `Ctrl+T` | Filter by tag |
 | `Ctrl+S` | Sort notes |

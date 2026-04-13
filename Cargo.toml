@@ -2,6 +2,13 @@
 name = "deez-notes"
 version = "0.3.0"
 edition = "2024"
+description = "A TUI Markdown note manager with fuzzy search, themes, and folder organization"
+license = "MIT"
+repository = "https://github.com/BaLaurent/deez-notes"
+homepage = "https://github.com/BaLaurent/deez-notes"
+readme = "README.md"
+keywords = ["tui", "markdown", "notes", "terminal", "ratatui"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 ratatui = "0.30"

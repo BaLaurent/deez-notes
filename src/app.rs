@@ -173,12 +173,15 @@ pub enum AppAction {
 
 use std::path::PathBuf;
 
+use std::sync::mpsc;
+
 use crate::config::settings::{self, Config};
 use crate::config::theme::Theme;
 use crate::core::note_manager::NoteManager;
 use crate::core::search::fuzzy_search;
 use crate::core::sort::sort_notes;
 use crate::core::tags::{filter_by_tag, tag_filter_items};
+use crate::update;
 
 /// Top-level application that ties all modules together.
 pub struct App {
@@ -198,6 +201,12 @@ pub struct App {
     /// Whether the UI needs a redraw. Set to `true` on any input or resize event;
     /// cleared after `terminal.draw()` completes.
     pub dirty: bool,
+    /// Receiver for the background update check result (consumed once).
+    update_receiver: Option<mpsc::Receiver<update::UpdateStatus>>,
+    /// Update status once received from the background thread.
+    pub update_status: Option<update::UpdateStatus>,
+    /// Whether the user has dismissed the update banner.
+    pub update_dismissed: bool,
 }
 
 impl App {
@@ -236,6 +245,12 @@ impl App {
         };
         let current_theme = available_themes[theme_index].clone();
 
+        let update_receiver = if config.general.check_updates {
+            Some(update::checker::spawn_check())
+        } else {
+            None
+        };
+
         let mut app = Self {
             note_manager,
             config,
@@ -249,6 +264,9 @@ impl App {
             move_folder_index: 0,
             should_quit: false,
             dirty: true,
+            update_receiver,
+            update_status: None,
+            update_dismissed: false,
         };
 
         // Build initial filtered_indices with folder-awareness.
@@ -1086,6 +1104,34 @@ impl App {
     /// Set a status message.
     pub fn set_status(&mut self, msg: impl Into<String>) {
         self.state.status_message = Some(msg.into());
+    }
+
+    /// Poll for an update check result from the background thread.
+    /// Call this from the event loop. Only acts once.
+    pub fn poll_update_check(&mut self) {
+        if let Some(ref rx) = self.update_receiver {
+            match rx.try_recv() {
+                Ok(status) => {
+                    self.update_status = Some(status);
+                    self.update_receiver = None;
+                    self.dirty = true;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.update_status =
+                        Some(update::UpdateStatus::Failed("update check thread terminated".into()));
+                    self.update_receiver = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+    }
+
+    /// Whether the update banner should be visible in the layout.
+    pub fn show_update_banner(&self) -> bool {
+        if self.update_dismissed {
+            return false;
+        }
+        matches!(self.update_status, Some(update::UpdateStatus::Available { .. }))
     }
 
     /// Write the current config to disk (best-effort, errors silently ignored).

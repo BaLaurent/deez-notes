@@ -47,6 +47,8 @@ pub struct GeneralConfig {
     pub pager: String,
     /// Arguments passed to the pager before the file path (e.g. `["--paging", "always"]`).
     pub pager_args: Vec<String>,
+    /// Check for updates on startup (default: true).
+    pub check_updates: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -97,6 +99,7 @@ impl Default for GeneralConfig {
             editor: String::new(),
             pager: String::new(),
             pager_args: Vec::new(),
+            check_updates: true,
         }
     }
 }

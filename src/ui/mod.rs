@@ -5,3 +5,4 @@ pub mod main_panel;
 pub mod search_bar;
 pub mod side_panel;
 pub mod status_bar;
+pub mod update_banner;

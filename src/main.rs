@@ -93,6 +93,7 @@ fn run_app(
     app: &mut App,
 ) -> Result<()> {
     let mut status_set_at: Option<Instant> = None;
+    let mut update_banner_shown_at: Option<Instant> = None;
 
     loop {
         // Auto-clear status message after 3 seconds.
@@ -110,9 +111,28 @@ fn run_app(
             status_set_at = None;
         }
 
+        // Poll for background update check result.
+        app.poll_update_check();
+
+        // Auto-dismiss update banner after 60 seconds.
+        if app.show_update_banner() && update_banner_shown_at.is_none() {
+            update_banner_shown_at = Some(Instant::now());
+        }
+        if let Some(shown_at) = update_banner_shown_at {
+            if shown_at.elapsed() >= Duration::from_secs(60) {
+                app.update_dismissed = true;
+                update_banner_shown_at = None;
+                app.dirty = true;
+            }
+        }
+
         if app.dirty {
             let area: ratatui::layout::Rect = terminal.size()?.into();
-            let layout = ui::layout::compute_layout(area, app.config.ui.side_panel_width_percent);
+            let layout = ui::layout::compute_layout(
+                area,
+                app.config.ui.side_panel_width_percent,
+                app.show_update_banner(),
+            );
             let main_panel_width = layout.main_panel.width.saturating_sub(2); // borders
             app.ensure_markdown_cache(main_panel_width);
             terminal.draw(|frame| draw_ui(frame, app))?;
@@ -123,6 +143,10 @@ fn run_app(
             match event::read()? {
                 Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                     app.dirty = true;
+                    // Dismiss update banner on any keypress.
+                    if app.show_update_banner() {
+                        app.update_dismissed = true;
+                    }
                     if let Some(action) =
                         input::keybindings::map_key_event(key_event, &app.state.mode)
                     {
@@ -248,7 +272,12 @@ fn wait_for_keypress() {
 
 fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
     let area = frame.area();
-    let layout = ui::layout::compute_layout(area, app.config.ui.side_panel_width_percent);
+    let show_banner = app.show_update_banner();
+    let layout = ui::layout::compute_layout(
+        area,
+        app.config.ui.side_panel_width_percent,
+        show_banner,
+    );
     let notes = app.notes();
 
     let theme = &app.current_theme;
@@ -258,6 +287,16 @@ fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
         ratatui::widgets::Block::default().style(ratatui::style::Style::default().bg(theme.bg_main)),
         area,
     );
+
+    // Update banner (conditional).
+    if let (true, Some(banner_area), Some(status)) =
+        (show_banner, layout.update_banner, &app.update_status)
+    {
+        frame.render_widget(
+            ui::update_banner::UpdateBanner::new(status, theme),
+            banner_area,
+        );
+    }
 
     // Base widgets.
     frame.render_widget(ui::search_bar::SearchBar::new(&app.state, theme), layout.search_bar);

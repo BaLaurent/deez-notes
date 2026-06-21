@@ -6,13 +6,13 @@ use anyhow::Result;
 use clap::Parser;
 use crossterm::{
     cursor::{Hide, Show},
-    event::{self, Event, KeyEventKind},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
     execute,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use deez_notes::app::{App, AppAction, AppMode};
+use deez_notes::app::{App, AppAction, AppMode, KeyAction};
 use deez_notes::{config, editor, input, ui};
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ fn main() -> Result<()> {
     // Install panic hook that restores the terminal before printing the panic.
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = execute!(io::stderr(), LeaveAlternateScreen);
+        let _ = execute!(io::stderr(), LeaveAlternateScreen, DisableMouseCapture);
         let _ = terminal::disable_raw_mode();
         let _ = execute!(io::stderr(), Show);
         original_hook(info);
@@ -67,7 +67,7 @@ fn main() -> Result<()> {
     // Setup terminal.
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, Hide)?;
+    execute!(stdout, EnterAlternateScreen, Hide, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -78,7 +78,7 @@ fn main() -> Result<()> {
     let result = run_app(&mut terminal, &mut app);
 
     // Cleanup terminal (always, even on error).
-    let _ = execute!(terminal.backend_mut(), Show, LeaveAlternateScreen);
+    let _ = execute!(terminal.backend_mut(), Show, LeaveAlternateScreen, DisableMouseCapture);
     let _ = terminal::disable_raw_mode();
 
     result
@@ -155,7 +155,7 @@ fn run_app(
                         match app_action {
                             AppAction::OpenEditor(path) => {
                                 // Suspend terminal.
-                                execute!(io::stdout(), LeaveAlternateScreen)?;
+                                execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
                                 terminal::disable_raw_mode()?;
                                 execute!(io::stdout(), Show)?;
 
@@ -171,7 +171,7 @@ fn run_app(
 
                                 // Resume terminal.
                                 terminal::enable_raw_mode()?;
-                                execute!(io::stdout(), EnterAlternateScreen, Hide)?;
+                                execute!(io::stdout(), EnterAlternateScreen, Hide, EnableMouseCapture)?;
                                 terminal.clear()?;
 
                                 if let Err(e) = result {
@@ -183,7 +183,7 @@ fn run_app(
                             }
                             AppAction::OpenViewer(path) => {
                                 // Suspend terminal (leave alternate screen so output is visible).
-                                execute!(io::stdout(), LeaveAlternateScreen)?;
+                                execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
                                 terminal::disable_raw_mode()?;
                                 execute!(io::stdout(), Show)?;
 
@@ -212,7 +212,7 @@ fn run_app(
 
                                 // Resume terminal.
                                 terminal::enable_raw_mode()?;
-                                execute!(io::stdout(), EnterAlternateScreen, Hide)?;
+                                execute!(io::stdout(), EnterAlternateScreen, Hide, EnableMouseCapture)?;
                                 terminal.clear()?;
 
                                 if let Err(e) = result {
@@ -224,6 +224,9 @@ fn run_app(
                             AppAction::None => {}
                         }
                     }
+                }
+                Event::Mouse(mouse_event) => {
+                    handle_mouse(mouse_event, app, terminal)?;
                 }
                 Event::Resize(_, _) => {
                     app.dirty = true;
@@ -266,6 +269,59 @@ fn wait_for_keypress() {
     let _ = terminal::disable_raw_mode();
 }
 
+/// Translate a mouse event into an app action using the current layout.
+///
+/// Mouse input is only honoured in `Normal` mode; while a dialog or overlay is
+/// open the mouse is ignored. The wheel scrolls the markdown preview when over
+/// the main panel and moves the selection when over the side panel; a left
+/// click selects the side-panel item under the cursor.
+fn handle_mouse(
+    mouse_event: crossterm::event::MouseEvent,
+    app: &mut App,
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+) -> Result<()> {
+    if app.state.mode != AppMode::Normal {
+        return Ok(());
+    }
+
+    let area: ratatui::layout::Rect = terminal.size()?.into();
+    let layout = ui::layout::compute_layout(
+        area,
+        app.config.ui.side_panel_width_percent,
+        app.show_update_banner(),
+    );
+
+    use input::mouse::MouseAction;
+    let action = input::mouse::map_mouse_event(
+        mouse_event,
+        layout.side_panel,
+        layout.main_panel,
+        app.list_state.offset(),
+    );
+
+    match action {
+        MouseAction::ScrollPreviewUp => {
+            app.handle_action(KeyAction::ScrollUp)?;
+        }
+        MouseAction::ScrollPreviewDown => {
+            app.handle_action(KeyAction::ScrollDown)?;
+        }
+        MouseAction::NavigateUp => {
+            app.handle_action(KeyAction::NavigateUp)?;
+        }
+        MouseAction::NavigateDown => {
+            app.handle_action(KeyAction::NavigateDown)?;
+        }
+        MouseAction::SelectDisplayIndex(idx) => {
+            app.select_display_index(idx);
+        }
+        MouseAction::None => return Ok(()),
+    }
+
+    app.dirty = true;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // UI drawing
 // ---------------------------------------------------------------------------
@@ -278,7 +334,7 @@ fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
         app.config.ui.side_panel_width_percent,
         show_banner,
     );
-    let notes = app.notes();
+    let notes = app.note_manager.notes();
 
     let theme = &app.current_theme;
 
@@ -300,9 +356,10 @@ fn draw_ui(frame: &mut ratatui::Frame, app: &mut App) {
 
     // Base widgets.
     frame.render_widget(ui::search_bar::SearchBar::new(&app.state, theme), layout.search_bar);
-    frame.render_widget(
+    frame.render_stateful_widget(
         ui::side_panel::SidePanel::new(&app.state, notes, &app.config.ui, theme),
         layout.side_panel,
+        &mut app.list_state,
     );
     frame.render_widget(ui::main_panel::MainPanel::new(&app.state, notes, theme), layout.main_panel);
     frame.render_widget(ui::status_bar::StatusBar::new(&app.state, notes, theme), layout.status_bar);

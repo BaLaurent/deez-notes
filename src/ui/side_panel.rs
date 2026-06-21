@@ -3,7 +3,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, StatefulWidget, Widget},
+    widgets::{Block, Borders, List, ListItem, ListState, StatefulWidget},
 };
 
 use crate::app::{AppState, PanelFocus};
@@ -34,8 +34,9 @@ impl<'a> SidePanel<'a> {
     }
 }
 
-impl Widget for SidePanel<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+impl StatefulWidget for SidePanel<'_> {
+    type State = ListState;
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let note_count = self.state.filtered_indices.len();
         let current_folder = &self.state.current_folder;
 
@@ -130,9 +131,9 @@ impl Widget for SidePanel<'_> {
         } else {
             Some(self.state.selected_index)
         };
-        let mut list_state = ListState::default().with_selected(selected);
+        state.select(selected);
 
-        StatefulWidget::render(list, area, buf, &mut list_state);
+        StatefulWidget::render(list, area, buf, state);
     }
 }
 
@@ -169,7 +170,8 @@ mod tests {
         let panel = SidePanel::new(&state, &notes, &ui_config, &theme);
         let area = Rect::new(0, 0, 30, 10);
         let mut buf = Buffer::empty(area);
-        panel.render(area, &mut buf);
+        let mut list_state = ListState::default();
+        StatefulWidget::render(panel, area, &mut buf, &mut list_state);
     }
 
     #[test]
@@ -192,6 +194,7 @@ mod tests {
         let panel = SidePanel::new(&state, &notes, &ui_config, &theme);
         let area = Rect::new(0, 0, 40, 10);
         let mut buf = Buffer::empty(area);
-        panel.render(area, &mut buf);
+        let mut list_state = ListState::default();
+        StatefulWidget::render(panel, area, &mut buf, &mut list_state);
     }
 }

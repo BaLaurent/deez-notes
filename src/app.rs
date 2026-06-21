@@ -177,6 +177,7 @@ use std::sync::mpsc;
 
 use crate::config::settings::{self, Config};
 use crate::config::theme::Theme;
+use ratatui::widgets::ListState;
 use crate::core::note_manager::NoteManager;
 use crate::core::search::fuzzy_search;
 use crate::core::sort::sort_notes;
@@ -207,6 +208,9 @@ pub struct App {
     pub update_status: Option<update::UpdateStatus>,
     /// Whether the user has dismissed the update banner.
     pub update_dismissed: bool,
+    /// Side-panel list scroll state, persisted across frames so mouse clicks
+    /// can map a terminal row to the correct display item.
+    pub list_state: ListState,
 }
 
 impl App {
@@ -267,6 +271,7 @@ impl App {
             update_receiver,
             update_status: None,
             update_dismissed: false,
+            list_state: ListState::default(),
         };
 
         // Build initial filtered_indices with folder-awareness.
@@ -1021,6 +1026,19 @@ impl App {
     /// Total number of items displayed (folders + notes).
     pub fn total_display_count(&self) -> usize {
         self.state.display_folders.len() + self.state.filtered_indices.len()
+    }
+
+    /// Select the display item at `index` (folders then notes), as produced by
+    /// a mouse click. Out-of-range indices are ignored. Resets the preview
+    /// scroll and focuses the side panel, mirroring keyboard navigation.
+    pub fn select_display_index(&mut self, index: usize) {
+        if index >= self.total_display_count() {
+            return;
+        }
+        self.state.selected_index = index;
+        self.state.scroll_offset = 0;
+        self.state.focus = PanelFocus::SidePanel;
+        self.load_selected_content();
     }
 
     /// Navigate to the parent folder (no-op if at root).

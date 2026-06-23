@@ -4,14 +4,18 @@
 //! and editing notes programmatically. No business logic lives here — every
 //! command delegates to the core.
 
+use std::io::{IsTerminal, Read};
 use std::path::Path;
 
 use chrono::{DateTime, Local};
+use clap::Subcommand;
 use serde::Serialize;
 
+use crate::config::settings::Config;
 use crate::core::note::Note;
 use crate::core::note_manager::NoteManager;
 use crate::core::search::fuzzy_search;
+use crate::editor::external::open_in_editor;
 
 /// Relative path of a note from the notes directory (the stable CLI identifier).
 pub fn relative_path(manager: &NoteManager, note: &Note) -> String {
@@ -116,4 +120,95 @@ pub fn set_body(manager: &NoteManager, idx: usize, body: &str) -> anyhow::Result
 /// Delete a note from disk and from the in-memory list.
 pub fn remove(manager: &mut NoteManager, idx: usize) -> anyhow::Result<()> {
     manager.delete_note(idx)
+}
+
+/// Subcommands. Absence of a subcommand (handled in `main`) launches the TUI.
+#[derive(Subcommand)]
+pub enum Command {
+    /// List notes (TAB-separated path + title, or --json).
+    List {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        folder: Option<String>,
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    /// Print a note's markdown body to stdout.
+    Get { note: String },
+    /// Fuzzy-search notes by title.
+    Search {
+        query: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a note; body from stdin if piped, else opens $EDITOR.
+    New {
+        title: String,
+        #[arg(long)]
+        folder: Option<String>,
+    },
+    /// Overwrite a note's body; from stdin if piped, else opens $EDITOR.
+    Set { note: String },
+    /// Delete a note.
+    Rm { note: String },
+}
+
+/// Run a CLI subcommand against a freshly scanned `NoteManager`. Never touches
+/// the terminal (no raw mode / alternate screen).
+pub fn run(command: Command, config: Config) -> anyhow::Result<()> {
+    let mut manager = NoteManager::new(config.resolve_notes_dir())?;
+    manager.scan()?;
+
+    let editor_override = if config.general.editor.is_empty() {
+        None
+    } else {
+        Some(config.general.editor.as_str())
+    };
+
+    match command {
+        Command::List { json, folder, tag } => {
+            println!("{}", list(&manager, folder.as_deref(), tag.as_deref(), json));
+        }
+        Command::Search { query, json } => {
+            println!("{}", search(&manager, &query, json));
+        }
+        Command::Get { note } => {
+            print!("{}", get(&mut manager, &note)?);
+        }
+        Command::New { title, folder } => {
+            let path = create(&mut manager, &title, folder.as_deref().unwrap_or(""))?;
+            let idx = manager.notes().len() - 1;
+            if let Some(body) = piped_stdin()? {
+                set_body(&manager, idx, &body)?;
+            } else {
+                open_in_editor(&path, editor_override)?;
+            }
+            println!("{}", relative_path(&manager, &manager.notes()[idx]));
+        }
+        Command::Set { note } => {
+            let idx = resolve_note(&manager, &note)?;
+            if let Some(body) = piped_stdin()? {
+                set_body(&manager, idx, &body)?;
+            } else {
+                let path = manager.notes()[idx].path.clone();
+                open_in_editor(&path, editor_override)?;
+            }
+        }
+        Command::Rm { note } => {
+            let idx = resolve_note(&manager, &note)?;
+            remove(&mut manager, idx)?;
+        }
+    }
+    Ok(())
+}
+
+/// Return stdin's full contents if stdin is piped (not a terminal), else `None`.
+fn piped_stdin() -> anyhow::Result<Option<String>> {
+    if std::io::stdin().is_terminal() {
+        return Ok(None);
+    }
+    let mut s = String::new();
+    std::io::stdin().read_to_string(&mut s)?;
+    Ok(Some(s))
 }

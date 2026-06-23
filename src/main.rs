@@ -13,7 +13,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 
 use deez_notes::app::{App, AppAction, AppMode, KeyAction};
-use deez_notes::{config, editor, input, ui};
+use deez_notes::{cli, config, editor, input, ui};
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -33,6 +33,9 @@ struct Cli {
     /// Override editor binary
     #[arg(long)]
     editor: Option<String>,
+
+    #[command(subcommand)]
+    command: Option<cli::Command>,
 }
 
 // ---------------------------------------------------------------------------
@@ -53,6 +56,11 @@ fn main() -> Result<()> {
     }
     if let Some(ed) = cli.editor {
         config.general.editor = ed;
+    }
+
+    // CLI mode: a subcommand runs without ever touching the terminal.
+    if let Some(command) = cli.command {
+        return cli::run(command, config);
     }
 
     // Install panic hook that restores the terminal before printing the panic.

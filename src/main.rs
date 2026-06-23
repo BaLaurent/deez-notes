@@ -102,6 +102,8 @@ fn run_app(
 ) -> Result<()> {
     let mut status_set_at: Option<Instant> = None;
     let mut update_banner_shown_at: Option<Instant> = None;
+    // Last left-click (time, display index), for double-click detection.
+    let mut last_click: Option<(Instant, usize)> = None;
 
     loop {
         // Auto-clear status message after 3 seconds.
@@ -159,82 +161,18 @@ fn run_app(
                         input::keybindings::map_key_event(key_event, &app.state.mode)
                     {
                         let app_action = app.handle_action(action)?;
-
-                        match app_action {
-                            AppAction::OpenEditor(path) => {
-                                // Suspend terminal.
-                                execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
-                                terminal::disable_raw_mode()?;
-                                execute!(io::stdout(), Show)?;
-
-                                let real_idx = app.selected_note_real_index();
-
-                                let editor_override = if app.config.general.editor.is_empty() {
-                                    None
-                                } else {
-                                    Some(app.config.general.editor.as_str())
-                                };
-                                let result =
-                                    editor::external::open_in_editor(&path, editor_override);
-
-                                // Resume terminal.
-                                terminal::enable_raw_mode()?;
-                                execute!(io::stdout(), EnterAlternateScreen, Hide, EnableMouseCapture)?;
-                                terminal.clear()?;
-
-                                if let Err(e) = result {
-                                    app.set_status(format!("Editor error: {}", e));
-                                } else if let Some(idx) = real_idx {
-                                    app.after_editor(idx)?;
-                                }
-                                app.dirty = true;
-                            }
-                            AppAction::OpenViewer(path) => {
-                                // Suspend terminal (leave alternate screen so output is visible).
-                                execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
-                                terminal::disable_raw_mode()?;
-                                execute!(io::stdout(), Show)?;
-
-                                let pager = if app.config.general.pager.is_empty() {
-                                    None
-                                } else {
-                                    Some(app.config.general.pager.as_str())
-                                };
-                                let result = editor::external::open_in_viewer(
-                                    &path,
-                                    pager,
-                                    &app.config.general.pager_args,
-                                );
-
-                                match &result {
-                                    Ok(is_pager) => {
-                                        if !is_pager {
-                                            wait_for_keypress();
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("\nViewer error: {}", e);
-                                        wait_for_keypress();
-                                    }
-                                }
-
-                                // Resume terminal.
-                                terminal::enable_raw_mode()?;
-                                execute!(io::stdout(), EnterAlternateScreen, Hide, EnableMouseCapture)?;
-                                terminal.clear()?;
-
-                                if let Err(e) = result {
-                                    app.set_status(format!("Viewer error: {}", e));
-                                }
-                                app.dirty = true;
-                            }
-                            AppAction::Quit => break,
-                            AppAction::None => {}
+                        if dispatch_app_action(app, terminal, app_action)? {
+                            break;
                         }
                     }
                 }
                 Event::Mouse(mouse_event) => {
-                    handle_mouse(mouse_event, app, terminal)?;
+                    app.dirty = true;
+                    let app_action =
+                        handle_mouse(mouse_event, app, terminal, &mut last_click)?;
+                    if dispatch_app_action(app, terminal, app_action)? {
+                        break;
+                    }
                 }
                 Event::Resize(_, _) => {
                     app.dirty = true;
@@ -277,19 +215,32 @@ fn wait_for_keypress() {
     let _ = terminal::disable_raw_mode();
 }
 
+/// How long after a click a second click on the same item still counts as a
+/// double-click.
+const DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(400);
+
 /// Translate a mouse event into an app action using the current layout.
 ///
 /// Mouse input is only honoured in `Normal` mode; while a dialog or overlay is
 /// open the mouse is ignored. The wheel scrolls the markdown preview when over
-/// the main panel and moves the selection when over the side panel; a left
-/// click selects the side-panel item under the cursor.
+/// the main panel and moves the selection when over the side panel. A single
+/// left click selects the side-panel item under the cursor; a double click on
+/// the same item activates it (enters a folder or opens a note in the editor),
+/// exactly like pressing Enter.
+///
+/// `last_click` carries the previous click's time and index across calls so
+/// double-clicks can be detected (crossterm does not deliver a native
+/// double-click event).
 fn handle_mouse(
     mouse_event: crossterm::event::MouseEvent,
     app: &mut App,
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-) -> Result<()> {
-    if app.state.mode != AppMode::Normal {
-        return Ok(());
+    last_click: &mut Option<(Instant, usize)>,
+) -> Result<AppAction> {
+    // Mouse is honoured in Normal mode and in Search mode (so search results stay
+    // clickable); other dialogs and overlays ignore it.
+    if !matches!(app.state.mode, AppMode::Normal | AppMode::Search) {
+        return Ok(AppAction::None);
     }
 
     let area: ratatui::layout::Rect = terminal.size()?.into();
@@ -304,30 +255,117 @@ fn handle_mouse(
         mouse_event,
         layout.side_panel,
         layout.main_panel,
+        layout.search_bar,
         app.list_state.offset(),
     );
 
     match action {
-        MouseAction::ScrollPreviewUp => {
-            app.handle_action(KeyAction::ScrollUp)?;
-        }
-        MouseAction::ScrollPreviewDown => {
-            app.handle_action(KeyAction::ScrollDown)?;
-        }
-        MouseAction::NavigateUp => {
-            app.handle_action(KeyAction::NavigateUp)?;
-        }
-        MouseAction::NavigateDown => {
-            app.handle_action(KeyAction::NavigateDown)?;
-        }
+        MouseAction::ScrollPreviewUp => app.handle_action(KeyAction::ScrollUp),
+        MouseAction::ScrollPreviewDown => app.handle_action(KeyAction::ScrollDown),
+        MouseAction::NavigateUp => app.handle_action(KeyAction::NavigateUp),
+        MouseAction::NavigateDown => app.handle_action(KeyAction::NavigateDown),
+        MouseAction::FocusSearch => app.handle_action(KeyAction::Search),
         MouseAction::SelectDisplayIndex(idx) => {
+            // Clicking a result confirms an active search, like pressing Enter.
+            if app.state.mode == AppMode::Search {
+                app.handle_action(KeyAction::Select)?;
+            }
+            let now = Instant::now();
+            let is_double = last_click
+                .map(|(t, i)| i == idx && now.duration_since(t) <= DOUBLE_CLICK_WINDOW)
+                .unwrap_or(false);
             app.select_display_index(idx);
+            if is_double {
+                *last_click = None;
+                app.handle_action(KeyAction::Select)
+            } else {
+                *last_click = Some((now, idx));
+                Ok(AppAction::None)
+            }
         }
-        MouseAction::None => return Ok(()),
+        MouseAction::None => Ok(AppAction::None),
     }
+}
 
-    app.dirty = true;
-    Ok(())
+/// Carry out an [`AppAction`], suspending and restoring the terminal around
+/// external editor/viewer invocations. Shared by the keyboard and mouse paths.
+/// Returns `true` when the application should quit.
+fn dispatch_app_action(
+    app: &mut App,
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    action: AppAction,
+) -> Result<bool> {
+    match action {
+        AppAction::OpenEditor(path) => {
+            // Suspend terminal.
+            execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+            terminal::disable_raw_mode()?;
+            execute!(io::stdout(), Show)?;
+
+            let real_idx = app.selected_note_real_index();
+
+            let editor_override = if app.config.general.editor.is_empty() {
+                None
+            } else {
+                Some(app.config.general.editor.as_str())
+            };
+            let result = editor::external::open_in_editor(&path, editor_override);
+
+            // Resume terminal.
+            terminal::enable_raw_mode()?;
+            execute!(io::stdout(), EnterAlternateScreen, Hide, EnableMouseCapture)?;
+            terminal.clear()?;
+
+            if let Err(e) = result {
+                app.set_status(format!("Editor error: {}", e));
+            } else if let Some(idx) = real_idx {
+                app.after_editor(idx)?;
+            }
+            app.dirty = true;
+        }
+        AppAction::OpenViewer(path) => {
+            // Suspend terminal (leave alternate screen so output is visible).
+            execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+            terminal::disable_raw_mode()?;
+            execute!(io::stdout(), Show)?;
+
+            let pager = if app.config.general.pager.is_empty() {
+                None
+            } else {
+                Some(app.config.general.pager.as_str())
+            };
+            let result = editor::external::open_in_viewer(
+                &path,
+                pager,
+                &app.config.general.pager_args,
+            );
+
+            match &result {
+                Ok(is_pager) => {
+                    if !is_pager {
+                        wait_for_keypress();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("\nViewer error: {}", e);
+                    wait_for_keypress();
+                }
+            }
+
+            // Resume terminal.
+            terminal::enable_raw_mode()?;
+            execute!(io::stdout(), EnterAlternateScreen, Hide, EnableMouseCapture)?;
+            terminal.clear()?;
+
+            if let Err(e) = result {
+                app.set_status(format!("Viewer error: {}", e));
+            }
+            app.dirty = true;
+        }
+        AppAction::Quit => return Ok(true),
+        AppAction::None => {}
+    }
+    Ok(false)
 }
 
 // ---------------------------------------------------------------------------

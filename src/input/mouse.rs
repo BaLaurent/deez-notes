@@ -14,6 +14,8 @@ pub enum MouseAction {
     NavigateDown,
     /// Select the side-panel display item at this index (folders then notes).
     SelectDisplayIndex(usize),
+    /// Enter search mode (the search bar was clicked).
+    FocusSearch,
     /// Nothing to do.
     None,
 }
@@ -36,6 +38,7 @@ pub fn map_mouse_event(
     event: MouseEvent,
     side_panel: Rect,
     main_panel: Rect,
+    search_bar: Rect,
     list_offset: usize,
 ) -> MouseAction {
     let (col, row) = (event.column, event.row);
@@ -59,6 +62,9 @@ pub fn map_mouse_event(
             }
         }
         MouseEventKind::Down(MouseButton::Left) => {
+            if contains(search_bar, col, row) {
+                return MouseAction::FocusSearch;
+            }
             let inner_top = side_panel.y.saturating_add(1);
             // Exclusive of the bottom border row.
             let inner_bottom = side_panel.y.saturating_add(side_panel.height.saturating_sub(1));
@@ -86,22 +92,26 @@ mod tests {
         }
     }
 
-    // side: x=0,w=20,y=1,h=10 (content rows 2..=9); main: x=20,w=30,y=1,h=10
+    // search: x=0,w=50,y=0,h=1; side: x=0,w=20,y=1,h=10 (content rows 2..=9);
+    // main: x=20,w=30,y=1,h=10
     fn side() -> Rect {
         Rect::new(0, 1, 20, 10)
     }
     fn main() -> Rect {
         Rect::new(20, 1, 30, 10)
     }
+    fn search() -> Rect {
+        Rect::new(0, 0, 50, 1)
+    }
 
     #[test]
     fn wheel_over_preview_scrolls_preview() {
         assert_eq!(
-            map_mouse_event(ev(MouseEventKind::ScrollDown, 25, 5), side(), main(), 0),
+            map_mouse_event(ev(MouseEventKind::ScrollDown, 25, 5), side(), main(), search(), 0),
             MouseAction::ScrollPreviewDown
         );
         assert_eq!(
-            map_mouse_event(ev(MouseEventKind::ScrollUp, 25, 5), side(), main(), 0),
+            map_mouse_event(ev(MouseEventKind::ScrollUp, 25, 5), side(), main(), search(), 0),
             MouseAction::ScrollPreviewUp
         );
     }
@@ -109,11 +119,11 @@ mod tests {
     #[test]
     fn wheel_over_side_panel_navigates() {
         assert_eq!(
-            map_mouse_event(ev(MouseEventKind::ScrollDown, 5, 5), side(), main(), 0),
+            map_mouse_event(ev(MouseEventKind::ScrollDown, 5, 5), side(), main(), search(), 0),
             MouseAction::NavigateDown
         );
         assert_eq!(
-            map_mouse_event(ev(MouseEventKind::ScrollUp, 5, 5), side(), main(), 0),
+            map_mouse_event(ev(MouseEventKind::ScrollUp, 5, 5), side(), main(), search(), 0),
             MouseAction::NavigateUp
         );
     }
@@ -122,13 +132,21 @@ mod tests {
     fn click_maps_row_to_display_index_with_offset() {
         // First content row is y+1 = 2 -> list row 0 -> offset + 0.
         assert_eq!(
-            map_mouse_event(ev(MouseEventKind::Down(MouseButton::Left), 3, 2), side(), main(), 0),
+            map_mouse_event(ev(MouseEventKind::Down(MouseButton::Left), 3, 2), side(), main(), search(), 0),
             MouseAction::SelectDisplayIndex(0)
         );
         // Row 4 -> list row 2; offset 5 -> index 7.
         assert_eq!(
-            map_mouse_event(ev(MouseEventKind::Down(MouseButton::Left), 3, 4), side(), main(), 5),
+            map_mouse_event(ev(MouseEventKind::Down(MouseButton::Left), 3, 4), side(), main(), search(), 5),
             MouseAction::SelectDisplayIndex(7)
+        );
+    }
+
+    #[test]
+    fn click_on_search_bar_focuses_search() {
+        assert_eq!(
+            map_mouse_event(ev(MouseEventKind::Down(MouseButton::Left), 10, 0), side(), main(), search(), 0),
+            MouseAction::FocusSearch
         );
     }
 
@@ -136,19 +154,20 @@ mod tests {
     fn click_on_border_rows_is_ignored() {
         // Top border row (y=1) and bottom border row (y+h-1=10).
         assert_eq!(
-            map_mouse_event(ev(MouseEventKind::Down(MouseButton::Left), 3, 1), side(), main(), 0),
+            map_mouse_event(ev(MouseEventKind::Down(MouseButton::Left), 3, 1), side(), main(), search(), 0),
             MouseAction::None
         );
         assert_eq!(
-            map_mouse_event(ev(MouseEventKind::Down(MouseButton::Left), 3, 10), side(), main(), 0),
+            map_mouse_event(ev(MouseEventKind::Down(MouseButton::Left), 3, 10), side(), main(), search(), 0),
             MouseAction::None
         );
     }
 
     #[test]
     fn events_outside_panels_do_nothing() {
+        // Row 0 is the search bar; use a column past its width (50) to land nowhere.
         assert_eq!(
-            map_mouse_event(ev(MouseEventKind::ScrollDown, 5, 0), side(), main(), 0),
+            map_mouse_event(ev(MouseEventKind::ScrollDown, 60, 0), side(), main(), search(), 0),
             MouseAction::None
         );
     }

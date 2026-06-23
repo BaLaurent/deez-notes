@@ -97,3 +97,23 @@ pub fn get(manager: &mut NoteManager, query: &str) -> anyhow::Result<String> {
     let idx = resolve_note(manager, query)?;
     manager.get_content(idx)
 }
+
+/// Create a note in `folder` (empty = root); returns its absolute path.
+/// The new note is appended last in `manager.notes()`.
+pub fn create(
+    manager: &mut NoteManager,
+    title: &str,
+    folder: &str,
+) -> anyhow::Result<std::path::PathBuf> {
+    manager.create_note(title, Path::new(folder))
+}
+
+/// Overwrite a note's body, preserving/refreshing its front matter.
+pub fn set_body(manager: &NoteManager, idx: usize, body: &str) -> anyhow::Result<()> {
+    manager.notes()[idx].save_content(body)
+}
+
+/// Delete a note from disk and from the in-memory list.
+pub fn remove(manager: &mut NoteManager, idx: usize) -> anyhow::Result<()> {
+    manager.delete_note(idx)
+}

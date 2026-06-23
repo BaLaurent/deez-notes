@@ -109,3 +109,29 @@ fn get_returns_body_without_front_matter() {
     assert!(body.contains("Hello body."), "got: {body}");
     assert!(!body.contains("title:"), "front matter leaked: {body}");
 }
+
+#[test]
+fn create_then_set_body_writes_file() {
+    let dir = TempDir::new().unwrap();
+    let mut m = manager_with(&dir);
+
+    let path = cli::create(&mut m, "My Note", "").unwrap();
+    let idx = m.notes().len() - 1; // create_note pushes the new note last
+    cli::set_body(&m, idx, "Fresh content.").unwrap();
+
+    let on_disk = fs::read_to_string(&path).unwrap();
+    assert!(on_disk.contains("Fresh content."), "got: {on_disk}");
+    assert!(on_disk.contains("title:"), "front matter missing: {on_disk}");
+}
+
+#[test]
+fn remove_deletes_file() {
+    let dir = TempDir::new().unwrap();
+    write_md(dir.path(), "alpha.md", "Alpha", &[], "b");
+    let mut m = manager_with(&dir);
+    let idx = cli::resolve_note(&m, "alpha.md").unwrap();
+
+    cli::remove(&mut m, idx).unwrap();
+
+    assert!(!dir.path().join("alpha.md").exists());
+}

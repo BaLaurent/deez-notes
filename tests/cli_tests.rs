@@ -45,3 +45,36 @@ fn list_json_outputs_array_with_path_and_title() {
     assert!(out.contains("\"title\": \"Alpha\""), "got: {out}");
     assert!(out.contains("\"work\""), "got: {out}");
 }
+
+#[test]
+fn list_filters_by_folder_and_tag() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("work")).unwrap();
+    write_md(dir.path(), "root.md", "Root", &["home"], "b");
+    write_md(&dir.path().join("work"), "task.md", "Task", &["urgent"], "b");
+    write_md(&dir.path().join("work"), "idea.md", "Idea", &["home"], "b");
+    let m = manager_with(&dir);
+
+    // Folder filter: exact folder, non-recursive.
+    let work = cli::list(&m, Some("work"), None, false);
+    assert!(work.contains("work/task.md"), "got: {work}");
+    assert!(work.contains("work/idea.md"), "got: {work}");
+    assert!(!work.contains("root.md"), "got: {work}");
+
+    // Folder + tag.
+    let urgent = cli::list(&m, Some("work"), Some("urgent"), false);
+    assert_eq!(urgent, "work/task.md\tTask");
+}
+
+#[test]
+fn search_finds_by_fuzzy_title() {
+    let dir = TempDir::new().unwrap();
+    write_md(dir.path(), "alpha.md", "Alpha", &[], "b");
+    write_md(dir.path(), "beta.md", "Beta", &[], "b");
+    let m = manager_with(&dir);
+
+    let out = cli::search(&m, "alph", false);
+
+    assert!(out.contains("alpha.md\tAlpha"), "got: {out}");
+    assert!(!out.contains("beta.md"), "got: {out}");
+}

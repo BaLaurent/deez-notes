@@ -4,11 +4,14 @@
 //! and editing notes programmatically. No business logic lives here — every
 //! command delegates to the core.
 
+use std::path::Path;
+
 use chrono::{DateTime, Local};
 use serde::Serialize;
 
 use crate::core::note::Note;
 use crate::core::note_manager::NoteManager;
+use crate::core::search::fuzzy_search;
 
 /// Relative path of a note from the notes directory (the stable CLI identifier).
 pub fn relative_path(manager: &NoteManager, note: &Note) -> String {
@@ -53,8 +56,25 @@ pub fn format_notes(manager: &NoteManager, indices: &[usize], json: bool) -> Str
     }
 }
 
-/// List notes, optionally filtered by folder and/or tag. (Filters wired in Task 2.)
-pub fn list(manager: &NoteManager, _folder: Option<&str>, _tag: Option<&str>, json: bool) -> String {
-    let indices: Vec<usize> = (0..manager.notes().len()).collect();
+/// List notes, optionally filtered by folder (exact, non-recursive) and/or tag.
+pub fn list(manager: &NoteManager, folder: Option<&str>, tag: Option<&str>, json: bool) -> String {
+    let notes = manager.notes();
+    let base: Vec<usize> = match folder {
+        Some(f) => manager.notes_in_folder(Path::new(f)),
+        None => (0..notes.len()).collect(),
+    };
+    let indices: Vec<usize> = base
+        .into_iter()
+        .filter(|&i| match tag {
+            Some(t) => notes[i].tags.iter().any(|nt| nt == t),
+            None => true,
+        })
+        .collect();
+    format_notes(manager, &indices, json)
+}
+
+/// Fuzzy-search notes by title, rendered like `list`.
+pub fn search(manager: &NoteManager, query: &str, json: bool) -> String {
+    let indices = fuzzy_search(query, manager.notes(), false);
     format_notes(manager, &indices, json)
 }

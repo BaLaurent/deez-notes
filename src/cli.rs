@@ -78,3 +78,22 @@ pub fn search(manager: &NoteManager, query: &str, json: bool) -> String {
     let indices = fuzzy_search(query, manager.notes(), false);
     format_notes(manager, &indices, json)
 }
+
+/// Resolve a `<note>` argument to a note index: exact relative-path match first,
+/// then fuzzy title fallback. Errors if nothing matches.
+pub fn resolve_note(manager: &NoteManager, query: &str) -> anyhow::Result<usize> {
+    let notes = manager.notes();
+    if let Some(i) = notes.iter().position(|n| relative_path(manager, n) == query) {
+        return Ok(i);
+    }
+    fuzzy_search(query, notes, false)
+        .first()
+        .copied()
+        .ok_or_else(|| anyhow::anyhow!("no note matches '{}'", query))
+}
+
+/// Read a note's markdown body (front matter stripped) to stdout-ready text.
+pub fn get(manager: &mut NoteManager, query: &str) -> anyhow::Result<String> {
+    let idx = resolve_note(manager, query)?;
+    manager.get_content(idx)
+}

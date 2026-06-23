@@ -78,3 +78,34 @@ fn search_finds_by_fuzzy_title() {
     assert!(out.contains("alpha.md\tAlpha"), "got: {out}");
     assert!(!out.contains("beta.md"), "got: {out}");
 }
+
+#[test]
+fn resolve_note_prefers_exact_path_then_fuzzy() {
+    let dir = TempDir::new().unwrap();
+    write_md(dir.path(), "alpha.md", "Alpha", &[], "b");
+    write_md(dir.path(), "beta.md", "Beta Notes", &[], "b");
+    let m = manager_with(&dir);
+
+    // Exact relative path.
+    let by_path = cli::resolve_note(&m, "beta.md").unwrap();
+    assert_eq!(cli::relative_path(&m, &m.notes()[by_path]), "beta.md");
+
+    // Fuzzy title fallback.
+    let by_title = cli::resolve_note(&m, "beta notes").unwrap();
+    assert_eq!(cli::relative_path(&m, &m.notes()[by_title]), "beta.md");
+
+    // No match -> error.
+    assert!(cli::resolve_note(&m, "zzz-nope").is_err());
+}
+
+#[test]
+fn get_returns_body_without_front_matter() {
+    let dir = TempDir::new().unwrap();
+    write_md(dir.path(), "alpha.md", "Alpha", &[], "Hello body.");
+    let mut m = manager_with(&dir);
+
+    let body = cli::get(&mut m, "alpha.md").unwrap();
+
+    assert!(body.contains("Hello body."), "got: {body}");
+    assert!(!body.contains("title:"), "front matter leaked: {body}");
+}

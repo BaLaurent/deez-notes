@@ -224,7 +224,7 @@ impl App {
         let sort_mode = config.resolve_sort_mode();
         let sort_ascending = config.sort.default_ascending;
 
-        let mut state = AppState {
+        let state = AppState {
             sort_mode,
             sort_ascending,
             ..AppState::default()

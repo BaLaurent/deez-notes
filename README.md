@@ -19,6 +19,7 @@ A fast, keyboard-driven TUI note manager for Markdown files. Built with Rust and
 - Read-only viewer mode with configurable pager (falls back to `cat`)
 - 6 built-in themes + custom theme support, persisted across restarts
 - Keyboard-driven with `Ctrl+` shortcuts and `j`/`k` navigation
+- **Scriptable CLI** — list, read, search, create, edit, and delete notes headlessly, pipe-friendly with `--json` output
 - Configurable via TOML (`~/.config/deez-notes/config.toml`)
 
 ## Installation
@@ -63,10 +64,19 @@ cargo build --release
 ## Usage
 
 ```
-deez-notes [OPTIONS] [DIRECTORY]
+deez-notes [OPTIONS] [DIRECTORY] [COMMAND]
 
 Arguments:
   [DIRECTORY]  Notes directory (default: ~/notes/)
+
+Commands:
+  (none)   Launch the interactive TUI
+  list     List notes (path + title, or --json)
+  get      Print a note's markdown body to stdout
+  search   Fuzzy-search notes by title
+  new      Create a note (body from stdin, or $EDITOR)
+  set      Overwrite a note's body (from stdin, or $EDITOR)
+  rm       Delete a note
 
 Options:
   -c, --config <CONFIG>  Path to config file
@@ -74,6 +84,9 @@ Options:
   -h, --help             Print help
   -V, --version          Print version
 ```
+
+Running `deez-notes` with no command launches the TUI. Any subcommand runs
+headlessly without ever entering the terminal UI — see [CLI mode](#cli-mode-scripting).
 
 ### Quick start
 
@@ -86,6 +99,47 @@ deez-notes ~/my-notes
 
 # Use a custom editor
 deez-notes --editor nvim
+```
+
+## CLI mode (scripting)
+
+A bare `deez-notes` opens the TUI. Pass a subcommand and it runs headlessly —
+no alternate screen, no raw mode — reading and writing through the same core,
+built for pipes, scripts, and cron.
+
+| Command | Description |
+|---------|-------------|
+| `list [--json] [--folder F] [--tag T]` | List notes. Default output is `path<TAB>title`; `--json` emits an array of `{path, title, tags, created, modified}`. `--folder` is exact (non-recursive); `--tag` filters by an exact tag. |
+| `get <note>` | Print a note's markdown body (front matter stripped) to stdout. |
+| `search <query> [--json]` | Fuzzy-search note titles, same output format as `list`. |
+| `new <title> [--folder F]` | Create a note. Body is read from stdin if piped, otherwise `$EDITOR` opens. Prints the created note's relative path. |
+| `set <note>` | Overwrite a note's body (front matter preserved). Body from stdin if piped, otherwise `$EDITOR`. |
+| `rm <note>` | Delete a note. |
+
+**Addressing a note** (`<note>`): an exact relative path is matched first
+(e.g. `projets/idee.md`), then a fuzzy title fallback (e.g. `"idee projet"`).
+
+Errors are printed to stderr with a non-zero exit code. The notes directory
+and global options (`[DIRECTORY]`, `--config`, `--editor`) apply to CLI mode too.
+
+```bash
+# Discover notes as JSON and extract paths
+deez-notes list --json | jq -r '.[].path'
+
+# Everything tagged "work", in a subfolder
+deez-notes list --folder projets --tag work
+
+# Read a note by fuzzy title, straight into a pager
+deez-notes get "weekly review" | glow -
+
+# Create a note from a pipe (no editor opens)
+printf '# Standup\n\n- ...\n' | deez-notes new "Standup $(date +%F)" --folder journal
+
+# Rewrite a note's body from a file
+deez-notes set "journal/standup.md" < notes.md
+
+# Search and delete
+deez-notes rm "$(deez-notes search 'old draft' | head -1 | cut -f1)"
 ```
 
 ## Keybindings

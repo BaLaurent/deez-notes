@@ -77,6 +77,7 @@ Commands:
   new      Create a note (body from stdin, or $EDITOR)
   set      Overwrite a note's body (from stdin, or $EDITOR)
   rm       Delete a note
+  link     Symlink a note into the current directory
 
 Options:
   -c, --config <CONFIG>  Path to config file
@@ -115,6 +116,7 @@ built for pipes, scripts, and cron.
 | `new <title> [--folder F]` | Create a note. Body is read from stdin if piped, otherwise `$EDITOR` opens. Prints the created note's relative path. |
 | `set <note>` | Overwrite a note's body (front matter preserved). Body from stdin if piped, otherwise `$EDITOR`. |
 | `rm <note>` | Delete a note. |
+| `link <note> [name]` | Create a symlink in the current directory pointing at the note's file. The link is named `name` if given, otherwise the note's own filename (e.g. `mabit.md`). The symlink target is the note's absolute path, so it stays valid wherever you run this. Prints the created link's path; fails if something already exists at that path. |
 
 **Addressing a note** (`<note>`): an exact relative path is matched first
 (e.g. `projets/idee.md`), then a fuzzy title fallback (e.g. `"idee projet"`).
@@ -140,6 +142,11 @@ deez-notes set "journal/standup.md" < notes.md
 
 # Search and delete
 deez-notes rm "$(deez-notes search 'old draft' | head -1 | cut -f1)"
+
+# Symlink a note into the current directory (named mabit.md by default)
+deez-notes link "projet-personnel/mabit.md"
+# ...or give the link a custom name
+deez-notes link "mabit" notes-projet.md
 ```
 
 ## Keybindings

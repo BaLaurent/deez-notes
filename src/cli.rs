@@ -5,8 +5,9 @@
 //! command delegates to the core.
 
 use std::io::{IsTerminal, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use chrono::{DateTime, Local};
 use clap::Subcommand;
 use serde::Serialize;
@@ -122,6 +123,53 @@ pub fn remove(manager: &mut NoteManager, idx: usize) -> anyhow::Result<()> {
     manager.delete_note(idx)
 }
 
+/// Create a symlink in `dest_dir` that points at the note's file.
+///
+/// The link is named `name` when given, otherwise the note's own filename
+/// (e.g. `mabit.md`). The symlink target is the note's canonical absolute path,
+/// so the link stays valid no matter where `dest_dir` is. Returns the path of
+/// the created symlink. Fails if anything already exists at that path.
+pub fn link(
+    manager: &NoteManager,
+    idx: usize,
+    dest_dir: &Path,
+    name: Option<&str>,
+) -> anyhow::Result<PathBuf> {
+    let note_path = &manager.notes()[idx].path;
+    let target = std::fs::canonicalize(note_path)
+        .with_context(|| format!("failed to resolve note path: {}", note_path.display()))?;
+
+    let link_name = match name {
+        Some(n) => n.to_string(),
+        None => target
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .ok_or_else(|| anyhow::anyhow!("note has no filename"))?,
+    };
+
+    let link_path = dest_dir.join(&link_name);
+    // `symlink_metadata` (unlike `exists`) does not follow links, so a broken
+    // symlink already at the path is detected too.
+    if link_path.symlink_metadata().is_ok() {
+        anyhow::bail!("'{}' already exists", link_path.display());
+    }
+    create_symlink(&target, &link_path)
+        .with_context(|| format!("failed to create symlink: {}", link_path.display()))?;
+    Ok(link_path)
+}
+
+/// Create a filesystem symlink, dispatching to the platform-specific call.
+#[cfg(unix)]
+fn create_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+/// Create a filesystem symlink, dispatching to the platform-specific call.
+#[cfg(windows)]
+fn create_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_file(target, link)
+}
+
 /// Subcommands. Absence of a subcommand (handled in `main`) launches the TUI.
 #[derive(Subcommand)]
 pub enum Command {
@@ -152,6 +200,12 @@ pub enum Command {
     Set { note: String },
     /// Delete a note.
     Rm { note: String },
+    /// Symlink a note into the current directory.
+    Link {
+        note: String,
+        /// Name for the symlink (default: the note's filename).
+        name: Option<String>,
+    },
 }
 
 /// Run a CLI subcommand against a freshly scanned `NoteManager`. Never touches
@@ -198,6 +252,12 @@ pub fn run(command: Command, config: Config) -> anyhow::Result<()> {
         Command::Rm { note } => {
             let idx = resolve_note(&manager, &note)?;
             remove(&mut manager, idx)?;
+        }
+        Command::Link { note, name } => {
+            let idx = resolve_note(&manager, &note)?;
+            let dest = std::env::current_dir()?;
+            let link_path = link(&manager, idx, &dest, name.as_deref())?;
+            println!("{}", link_path.display());
         }
     }
     Ok(())

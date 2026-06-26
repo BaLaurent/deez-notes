@@ -135,3 +135,54 @@ fn remove_deletes_file() {
 
     assert!(!dir.path().join("alpha.md").exists());
 }
+
+#[test]
+fn link_defaults_to_note_filename_and_points_at_it() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("perso")).unwrap();
+    write_md(&dir.path().join("perso"), "mabit.md", "Mabit", &[], "Mon contenu.");
+    let m = manager_with(&dir);
+    let idx = cli::resolve_note(&m, "perso/mabit.md").unwrap();
+
+    let dest = TempDir::new().unwrap();
+    let link_path = cli::link(&m, idx, dest.path(), None).unwrap();
+
+    assert_eq!(link_path, dest.path().join("mabit.md"));
+    assert!(fs::symlink_metadata(&link_path).unwrap().file_type().is_symlink());
+    // Following the link reaches the note's real body.
+    let through = fs::read_to_string(&link_path).unwrap();
+    assert!(through.contains("Mon contenu."), "got: {through}");
+    // The stored target is the note's canonical absolute path.
+    let target = fs::read_link(&link_path).unwrap();
+    assert_eq!(target, fs::canonicalize(&m.notes()[idx].path).unwrap());
+}
+
+#[test]
+fn link_uses_custom_name_when_given() {
+    let dir = TempDir::new().unwrap();
+    write_md(dir.path(), "mabit.md", "Mabit", &[], "b");
+    let m = manager_with(&dir);
+    let idx = cli::resolve_note(&m, "mabit.md").unwrap();
+
+    let dest = TempDir::new().unwrap();
+    let link_path = cli::link(&m, idx, dest.path(), Some("alias.md")).unwrap();
+
+    assert_eq!(link_path, dest.path().join("alias.md"));
+    assert!(fs::symlink_metadata(&link_path).unwrap().file_type().is_symlink());
+}
+
+#[test]
+fn link_fails_when_destination_already_exists() {
+    let dir = TempDir::new().unwrap();
+    write_md(dir.path(), "mabit.md", "Mabit", &[], "b");
+    let m = manager_with(&dir);
+    let idx = cli::resolve_note(&m, "mabit.md").unwrap();
+
+    let dest = TempDir::new().unwrap();
+    fs::write(dest.path().join("mabit.md"), "occupied").unwrap();
+
+    let err = cli::link(&m, idx, dest.path(), None).unwrap_err();
+    assert!(err.to_string().contains("already exists"), "got: {err}");
+    // The existing file is left untouched.
+    assert_eq!(fs::read_to_string(dest.path().join("mabit.md")).unwrap(), "occupied");
+}

@@ -1,1 +1,0 @@
-/home/octopusman/notes/Personnal Projects/deez-notes.md
